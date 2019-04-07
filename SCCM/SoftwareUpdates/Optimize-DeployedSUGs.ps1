@@ -121,7 +121,7 @@ Function How-ToScript(){
                 Write-Log -sMessage "-> Check (Default)-> Script will run Pre-checks and Pos-Checks. No Exceution" -iTabs 4        
                 Write-Log -sMessage "-> Run -> Runs script (Pre-Checks,Excecution,Post-Checks)" -iTabs 4
                 Write-Log -sMessage "-> Auto-Run -> Runs script accepting default options while running Pre-Checks,Excecution,Post-Checks" -iTabs 4
-            Write-Log -sMessage "-Scope (CAS/VAR/VARLAB/PVA/PVALAB/Other) -> Defines which SCCM Scope will be targeted." -iTabs 3        
+            Write-Log -sMessage "-Scope (CAS/VAR/PVA/Other) -> Defines which SCCM Scope will be targeted." -iTabs 3        
                 Write-Log -sMessage "-> CAS: Script targets SCCM01.zlab.varandas.com as Central Server/WMIProvider and WKS-SecurityUpdates as naming convention" -iTabs 4                        
                 Write-Log -sMessage "-> VAR: Script targets SCCM01.vlab.varandas.com as Central Server/WMIProvider and VAR as naming convention" -iTabs 4
                 Write-Log -sMessage "-> PVA: Script targets SCCM01.plab.varandas.com as Central Server/WMIProvider and VAR as naming convention" -iTabs 4
@@ -353,7 +353,7 @@ Function Test-SccmUpdateSuperseded{
     else{
         return $false
     }
-}
+}S
 Function Test-SCCMUpdateAge{
     param(
         [Parameter(Mandatory = $true)]
@@ -859,7 +859,7 @@ function Delete-OldDeployments{
 # Standard Variables
     # *****  Change Logging Path and File Name Here  *****    
     $sOutFileName	= "Optimize-DeployedSUGs.log" # Log File Name    
-    $sEventSource   = "VarandasToolBox"
+    $sEventSource   = "ToolBox"
     # ****************************************************
     $sScriptName 	= $MyInvocation.MyCommand
     $sScriptPath 	= Split-Path -Parent $MyInvocation.MyCommand.Path
