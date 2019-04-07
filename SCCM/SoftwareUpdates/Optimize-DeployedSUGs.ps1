@@ -859,7 +859,7 @@ function Delete-OldDeployments{
 # Standard Variables
     # *****  Change Logging Path and File Name Here  *****    
     $sOutFileName	= "Optimize-DeployedSUGs.log" # Log File Name    
-    $sEventSource   = "ToolBox"
+    $sEventSource   = "ToolBox" # Event Source Name
     # ****************************************************
     $sScriptName 	= $MyInvocation.MyCommand
     $sScriptPath 	= Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -885,7 +885,8 @@ function Delete-OldDeployments{
             $SMSProvider = "sccm01.zlab.varandas.com"            
             $SCCMSite = "CAS"            
             $TemplateName = "WKS-SecurityUpdates-"    
-            $finalCollection = "DG4"                             
+            $finalCollection = "DG4"   
+            $timeMonthSuperseded = 45                          
             $timeSustainerAge = 365
         }          
         #IF VAR
@@ -1518,8 +1519,8 @@ Function MainSub{
             return $global:iExitCode
         }                     
     #endregion      
-    #region 2.3 Remove unused KBs from Packages (KBs not deployed) and Reports KBs deployed not in any package    
-    Write-Log -iTabs 2 "2.3 Remove unused KBs from Packages (KBs not deployed) and list KBs deployed not in any package" -bConsole $true -sColor cyan    
+    #region 2.3 Remove unused KBs from Packages and download required KBs    
+    Write-Log -iTabs 2 "2.3 Remove unused KBs from Packages and download required KBs" -bConsole $true -sColor cyan    
     try{
         Write-Log -iTabs 3 "Reviewing $($TemplateName+"Monthly") and $($TemplateName+"Aged"). Extra KBs will be removed, needed  will be downloaded"  -bConsole $true           
         $monUpdList = $($sugs | Where-Object {$_.LocalizedDisplayName -like "$($TemplateName)ADR 20*"}).Updates
@@ -1532,7 +1533,7 @@ Function MainSub{
     #endregion          
     #region 2.4 EvaluateNumberofUpdatesinGroups checking if SUGs are over 900 KBs limit    
     Write-Log -iTabs 2 "2.4 EvaluateNumberofUpdatesinGroups checking if SUGs are over 900 KBs limit" -bConsole $true -sColor cyan    
-    #region Gettings SUG Info         
+    # Gettings SUG Info         
     try{
         Write-Log -iTabs 3 "Renewing SUG information..." -bConsole $true                        
         $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | ConvertTo-Array                                               
