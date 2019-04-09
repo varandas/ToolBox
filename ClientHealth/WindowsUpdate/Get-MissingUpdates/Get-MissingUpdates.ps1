@@ -12,7 +12,8 @@
   
 #>
 param( 
-    [string]$Path=".\wsusscan2.cab"
+    [string]$Path=".\wsusscn2.cab",
+    [ValidateSet("RemoteLog","SQLLog","Both")][string]$LogType
 )
 # --------------------------------------------------------------------------------------------
 #region HEADER
@@ -78,7 +79,8 @@ Function How-ToScript(){
             7xxx - WARNING
 
             9XXX - ERROR
-            
+            9001 - Error querying CCM_UpdatesStatus WMI class
+            9002 - Error querying CCM_UpdateCIAssignment WMI class
             9999 - Unhandled Exception     
 
    
@@ -286,7 +288,12 @@ function Scan-WSUSOffline{
     $iLogFileSize 	= 1048576
     # ****************************************************
 # Specific Variables
-    
+    $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS"
+    $RemoteLogName = "MissingUpdates1904.log"
+    $SQLServer = "SQL01"
+    $SQLInstance = "MSSQLSERVER"
+    $SQLDB = "MissingUpdates"
+    $SQLTable = "MissingUpdates1904"
     # ****************************************************  
 #endregion 
 # --------------------------------------------------------------------------------------------
@@ -296,10 +303,59 @@ Function MainSub{
 # ===============================================================================================================================================================================
 #region 1_PRE-CHECKS            
     Write-Log -iTabs 1 "Starting 1 - Pre-Checks."-scolor Cyan
-    #Checking if Machine's WMI is reacheable
-    Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Class CCM_UpdateStatus
-    #Checking if WSUSSCN2.CAB is found
-    #Checking if LogType set is functional       
+    #region 1.1 Checking if Machine's SCCM WMI is reacheable
+    Write-Log -iTabs 2 "Checking if machine has CCM_UpdateStatus class in WMI accessible."
+    try{
+        $sccmUpdateStatus = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Class CCM_UpdateStatus -ErrorAction Stop
+        Write-Log -iTabs 3 "WMI Class was found and update status loaded." -sColor Green
+    }
+    catch{
+        Write-Log -iTabs 3 "WMI Class was not found. Script will proceed but won't be able to determine status for updates deployed by SCCM." -sColor Yellow
+        $sccmUpdateStatus = $false
+    }
+    #endregion
+    #region 1.2 Checking if WSUSSCN2.CAB is found
+    Write-Log -iTabs 2 "Checking if wsusscn2.cab if found at $path."
+    try{
+        if (!(Test-Path $Path -ErrorAction Stop)){
+            throw "CAB not found"
+        }
+        $wsusCabStatus = $true
+        Write-Log -iTabs 3 "WSUSSCN2.CAB found at $path." -sColor Green
+    }
+    catch{
+        Write-Log -iTabs 3 "WSUSSCN2.CAB not found at $Path. Script will proceed but won't be able to determine status for updates from MicrosoftUpdate." -sColor Yellow
+        $wsusCabStatus = $false
+    }
+    #endregion
+    #region 1.3 Checking if LogType set is functional       
+    Write-Log -iTabs 2 "Checking if output settings are valid."
+    if (($LogType -eq "RemoteLog") -or ($LogType -eq "Both")){
+        Write-Log -iTabs 3 "Testing Remote Log location."
+        if (Test-Path $RemoteLogPath){
+            Write-Log -iTabs 4 "Remote Log ($RemoteLogPath) location was found."            
+        }
+        else{
+            Write-Log -iTabs 4 "Remote Log location was not found. Remote Logging not possible" -sColor Yellow
+        }
+    }
+    if (($LogType -eq "SQLLog") -or ($LogType -eq "Both")){
+        Write-Log -iTabs 3 "Testing SQL Log Settings."        
+        $constr = "Server=$SQLServer;Database=$SQLDB;Trusted_Connection=True;"        
+        $newConnection = New-Object -TypeName System.Data.SqlClient.SqlConnection
+        $newConnection.ConnectionString = $constr        
+        Write-Log -iTabs 4 "Attempting to connect to the database $constr"           
+        try {            
+            $newConnection.Close()
+            $newConnection.Open()
+            Write-Log -iTabs 5 "Connection to database tested successfully." -sColor Green
+            $newConnection.Close()
+        }
+        catch {
+            Write-Log -iTabs 5 "Could not open the connection. SQL logging will not be possible" -sColor Yellow                                  
+        }        
+    }
+    #endregion
     Write-Log -iTabs 1 "Completed 1 - Pre-Checks."-sColor Cyan    
     Write-Log -iTabs 0 -bConsole $true
 #endregion
@@ -308,7 +364,48 @@ Function MainSub{
 # ===============================================================================================================================================================================
 #region 2_EXECUTION
     Write-Log -iTabs 1 "Starting 2 - Execution." -sColor cyan    
-    #Get-MissingUpdates from SCCM
+    #region 2.1 Get-MissingUpdates from SCCM
+    Write-Log -iTabs 2 "Getting missing updates from SCCM."
+    If ($sccmUpdateStatus -ne $false){
+        Write-Log -iTabs 3 "Querying CCM_UpdatesStore WMI."
+        try{
+            $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus WHERE Status = 'Missing'"
+            Write-Log -iTabs 4 "$($sccmMissing.Count) updates found missing from WMI." -sColor Green
+        }
+        catch{
+            Write-Log -iTabs 4 "Error retrieving updates from WMI. This is not expected. Aborting script." -sColor Red
+            $global:iExitCode = 9001
+            return $global:iExitCode
+        }
+        Write-Log -iTabs 3 "Getting Software Update Group Deployments assigned to this device, from WMI."                
+        try{
+            $SUGDeployments = Get-WmiObject -Namespace "ROOT\ccm\Policy\Machine\RequestedConfig" -query "Select * FROM CCM_UpdateCIAssignment" | ConvertTo-Array
+            Write-Log -iTabs 4 "$($SUGDeployments.Count) deployments found from WMI." -sColor Green
+        }
+        catch{
+            Write-Log -iTabs 4 "Error retrieving deployments from WMI. This is not expected. Aborting script." -sColor Red
+            $global:iExitCode = 9002
+            return $global:iExitCode
+        }    
+        foreach ($SUGDeployment in $SUGDeployments){            
+            $deployedUpdates=@()
+            $deployedUpdates = Get-CMSoftwareUpdatesFromUpdateGroup -GroupName $SUGDeployment.AssignmentName
+            foreach ($deployedUpdate in $deployedUpdates){
+                if ($sccmMissing.UniqueID -contains $deployedUpdate.id){                
+                    Write-Host $deployedUpdate -ForegroundColor Red
+                    Write-Host "found in $($sccmMissing.UniqueID)" -ForegroundColor Red
+                }
+                else{
+                    Write-Host $deployedUpdate -ForegroundColor Green
+                    Write-Host "not found in $($sccmMissing.UniqueID)" -ForegroundColor Green
+                }
+            }
+        }
+    }
+    else{
+        Write-Log -iTabs 3 "Query to SCCM updates will not be performed due to pre-check 1.1 failure."
+    }
+    #endregion
     #Get-MissingUpdates from WSUSSCN2.CAB 
     #Build upload array for output
     #Write Output Locally
