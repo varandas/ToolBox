@@ -235,38 +235,7 @@ function ConvertTo-Array{
 #endregion
 # --------------------------------------------------------------------------------------------
 #region Specific FUNCTIONS
-function Scan-WSUSOffline{
-    param(
-        $Path=".\wsusscn2.cab"
-    )
-    #Using WUA to Scan for Updates Offline with PowerShell 
-    #VBS version: https://docs.microsoft.com/en-us/previous-versions/windows/desktop/aa387290(v=vs.85)  
-    $UpdateSession = New-Object -ComObject Microsoft.Update.Session 
-    $UpdateServiceManager  = New-Object -ComObject Microsoft.Update.ServiceManager 
-    $UpdateService = $UpdateServiceManager.AddScanPackageService("Offline Sync Service", $Path, 1) 
-    $UpdateSearcher = $UpdateSession.CreateUpdateSearcher()   
-    $UpdateSearcher.ServerSelection = 3 #ssOthers 
-    $UpdateSearcher.ServiceID = [string]$UpdateService.ServiceID  
-    $SearchResult = $UpdateSearcher.Search("IsInstalled=0") # or "IsInstalled=0 and IsInstalled=1" to also list the installed updates as MBSA did  
-    $Updates = $SearchResult.Updates 
-    $OfflineUpdateArray =@()
-    foreach ($Update in $Updates){       
-       $UpdateObj=[pscustomobject]@{"DateTime"="";"ComputerName"="";"Source"="";"Article"="";"Title"="";"UpdateID"="";"UpdateClassification"="";"Categories"=""}       
-       $UpdateObj.DateTime = $(Get-Date -UFormat %Y%m%d_%H%M%S)
-       $UpdateObj.ComputerName = $env:COMPUTERNAME
-       $UpdateObj.Source = "WSUSCAB"
-       $UpdateObj.Article = $Update.Title | Select-String -Pattern 'KB\d*' -AllMatches | % { $_.Matches } | % {$_.value}           
-       $UpdateObj.Title = $Update.Title                   
-       $UpdateObj.UpdateID = $entry.UpdateID
-       $UpdateObj.UpdateClassification = ""     
-       foreach ($entry in $Update.Categories){
-            $UpdateCat= "$($entry.Type):$($entry.Name);"            
-       }      
-       $UpdateObj.Categories = $UpdateCat
-       $OfflineUpdateArray += $UpdateObj
-    }#end foreach    
-    return $OfflineUpdateArray
-}
+
 #endregion
 # --------------------------------------------------------------------------------------------
 #region VARIABLES
@@ -288,12 +257,17 @@ function Scan-WSUSOffline{
     $iLogFileSize 	= 1048576
     # ****************************************************
 # Specific Variables
-    $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS"
-    $RemoteLogName = "MissingUpdates1904.log"
+    # $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS" #PVA
+    $RemoteLogPath = "\\sccm01\Share\Logs" #VAR
+    $RemoteLogName = "MissingUpdates$($cabver).log"
     $SQLServer = "SQL01"
     $SQLInstance = "MSSQLSERVER"
     $SQLDB = "MissingUpdates"
     $SQLTable = "MissingUpdates1904"
+    if ($Path -eq ".\wsusscn2.cab"){
+        $Path = Join-Path -Path $sScriptPath -ChildPath "wsusscn2.cab"
+    }
+    $cabVer="1903"
     # ****************************************************  
 #endregion 
 # --------------------------------------------------------------------------------------------
@@ -333,7 +307,7 @@ Function MainSub{
     if (($LogType -eq "RemoteLog") -or ($LogType -eq "Both")){
         Write-Log -iTabs 3 "Testing Remote Log location."
         if (Test-Path $RemoteLogPath){
-            Write-Log -iTabs 4 "Remote Log ($RemoteLogPath) location was found."            
+            Write-Log -iTabs 4 "Remote Log ($RemoteLogPath) location was found." -sColor Green           
         }
         else{
             Write-Log -iTabs 4 "Remote Log location was not found. Remote Logging not possible" -sColor Yellow
@@ -348,11 +322,11 @@ Function MainSub{
         try {            
             $newConnection.Close()
             $newConnection.Open()
-            Write-Log -iTabs 5 "Connection to database tested successfully." -sColor Green
+            Write-Log -iTabs 4 "Connection to database tested successfully." -sColor Green
             $newConnection.Close()
         }
         catch {
-            Write-Log -iTabs 5 "Could not open the connection. SQL logging will not be possible" -sColor Yellow                                  
+            Write-Log -iTabs 4 "Could not open the connection. SQL logging will not be possible" -sColor Yellow                                  
         }        
     }
     #endregion
@@ -364,12 +338,13 @@ Function MainSub{
 # ===============================================================================================================================================================================
 #region 2_EXECUTION
     Write-Log -iTabs 1 "Starting 2 - Execution." -sColor cyan    
+    $OutPut = @()
     #region 2.1 Get-MissingUpdates from SCCM
     Write-Log -iTabs 2 "Getting missing updates from SCCM."
     If ($sccmUpdateStatus -ne $false){
         Write-Log -iTabs 3 "Querying CCM_UpdatesStore WMI."
         try{
-            $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus WHERE Status = 'Missing'"
+            $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus WHERE Status = 'Missing'" 
             Write-Log -iTabs 4 "$($sccmMissing.Count) updates found missing from WMI." -sColor Green
         }
         catch{
@@ -387,28 +362,104 @@ Function MainSub{
             $global:iExitCode = 9002
             return $global:iExitCode
         }    
-        foreach ($SUGDeployment in $SUGDeployments){            
-            $deployedUpdates=@()
-            $deployedUpdates = Get-CMSoftwareUpdatesFromUpdateGroup -GroupName $SUGDeployment.AssignmentName
-            foreach ($deployedUpdate in $deployedUpdates){
-                if ($sccmMissing.UniqueID -contains $deployedUpdate.id){                
-                    Write-Host $deployedUpdate -ForegroundColor Red
-                    Write-Host "found in $($sccmMissing.UniqueID)" -ForegroundColor Red
+        Write-Log -iTabs 3 "For each Software Update Group Deployments found, detect Updates Assigned to it."                
+        $deployedUpdates=@()
+        $count=1
+        foreach ($SUGDeployment in $SUGDeployments){
+            Write-Log -iTabs 4 "($count/$($SUGDeployments.Count))$($SUGDeployment.AssignmentName) found! Getting Assigned CIs..."                
+            foreach ($update in $SUGDeployment.AssignedCIs){
+                $UpdateObj=[pscustomobject]@{"DateTime"="";"ComputerName"="";"Source"="";"Article"="";"UpdateID"="";"Title"="";"UpdateClassification"="";"ProductId"="";"Categories"=""}
+                [xml]$ofxUpdate = $Update
+                $UpdateObj.DateTime = $(Get-Date -UFormat %Y%m%d_%H%M%S)
+                $UpdateObj.ComputerName = $env:computername
+                $UpdateObj.Source = "SCCM: "+$SUGDeployment.AssignmentName
+                try{
+                    $UpdateObj.Article = $($ofxUpdate.ci.DisplayName | Select-String -Pattern 'KB\d*' -AllMatches | % { $_.Matches } | % {$_.value}).Replace("KB","")
+                    if ($null -eq $UpdateObj.Article){                     
+                        $UpdateObj.Article = $($ofxUpdate.ci.DisplayName | Select-String -Pattern ' \(\d*' -AllMatches | % { $_.Matches } | % {$_.value}).Replace(" (","")
+                    }
                 }
-                else{
-                    Write-Host $deployedUpdate -ForegroundColor Green
-                    Write-Host "not found in $($sccmMissing.UniqueID)" -ForegroundColor Green
-                }
+                catch{
+                    $UpdateObj.Article = "N/A"
+                }                
+                $UpdateObj.UpdateID = $ofxUpdate.ci.id           
+                $UpdateObj.Title = $ofxUpdate.ci.DisplayName
+                $UpdateObj.UpdateClassification = $ofxUpdate.ci.UpdateClassification
+                $UpdateObj.ProductId = $ofxUpdate.ci.ApplicabilityCondition.ApplicabilityRule.ProductId
+                $deployedUpdates+=$UpdateObj                
             }
+            $count++
         }
+        Write-Log -iTabs 4 "$($deployedUpdates.count) deployed updates found." -sColor Green
+        Write-Log -iTabs 3 "Checking if Missing Updates are found within Deployed Updates." 
+        $count=1
+        #$deployedUpdates.UpdateID
+        foreach ($missingUpdate in $sccmMissing){    
+            if ($deployedUpdates.UpdateID -contains $missingUpdate.UniqueID){
+                Write-Log -iTabs 4 "Found update missing $($missingUpdate.Article) - $($missingUpdate.Title)" -sColor Red
+                $output+=$deployedUpdates | Where {$_.UpdateID -eq $missingUpdate.UniqueID}
+            }
+            else{
+                #Write-Host "$($missingUpdate.UniqueID) not found in deployed updates" -ForegroundColor Green
+                
+            }                  
+            $count++
+        }
+        Write-Log -iTabs 4 "$($output.count) updates missing from SCCM deployments." -sColor Green
     }
     else{
         Write-Log -iTabs 3 "Query to SCCM updates will not be performed due to pre-check 1.1 failure."
     }
     #endregion
-    #Get-MissingUpdates from WSUSSCN2.CAB 
-    #Build upload array for output
-    #Write Output Locally
+    #region 2.2 Get-MissingUpdates from WSUSSCN2.CAB     
+    Write-Log -iTabs 2 "Creating Update Searcher using wsusscn2.cab. This might take a few minutes."
+    if ($wsusCabStatus){
+        $UpdateSession = New-Object -ComObject Microsoft.Update.Session 
+        $UpdateServiceManager  = New-Object -ComObject Microsoft.Update.ServiceManager 
+        $UpdateService = $UpdateServiceManager.AddScanPackageService("Offline Sync Service",$Path, 1) 
+        $UpdateSearcher = $UpdateSession.CreateUpdateSearcher()   
+        $UpdateSearcher.ServerSelection = 3 #ssOthers 
+        $UpdateSearcher.ServiceID = [string]$UpdateService.ServiceID  
+        $SearchResult = $UpdateSearcher.Search("IsInstalled=0") # or "IsInstalled=0 and IsInstalled=1" to also list the installed updates as MBSA did  
+        Write-Log -iTabs 3 "Retrieving updates from Searcher with Status Missing"
+        $Updates = $SearchResult.Updates 
+        $OfflineUpdateArray =@()
+        Write-Log -iTabs 3 "Building array with updates missing"
+        $count = 1
+        foreach ($Update in $Updates){       
+            $UpdateObj=[pscustomobject]@{"DateTime"="";"ComputerName"="";"Source"="";"Article"="";"UpdateID"="";"Title"="";"UpdateClassification"="";"ProductId"="";"Categories"=""}       
+            $UpdateObj.DateTime = $(Get-Date -UFormat %Y%m%d_%H%M%S)
+            $UpdateObj.ComputerName = $env:COMPUTERNAME
+            $UpdateObj.Source = "WSUSCAB$cabVer"            
+            try{
+                $UpdateObj.Article = $($Update.Title | Select-String -Pattern 'KB\d*' -AllMatches | % { $_.Matches } | % {$_.value}).Replace("KB","")
+                if ($null -eq $UpdateObj.Article){                     
+                    $UpdateObj.Article = $($Update.Title | Select-String -Pattern ' \(\d*' -AllMatches | % { $_.Matches } | % {$_.value}).Replace(" (","")
+                }
+            }
+            catch{
+                $UpdateObj.Article = "N/A"
+            } 
+            $UpdateObj.UpdateID = $Update.Identity.UpdateID
+            $UpdateObj.Title = $Update.Title
+            $catstr=$null
+            foreach($cat in $Update.Categories){
+                $catstr+=$($cat.Type)+":"+$($cat.Name)+";"
+            }             
+            $UpdateObj.Categories = $catstr
+            $output += $UpdateObj
+            $count++
+        }
+        Write-Log -iTabs 4 "$count updates missing from WSUS CAB." -sColor Green
+            
+    }
+    else{
+        Write-Log -iTabs 3 "Query to WSUS updates will not be performed due to pre-check 1.2 failure."
+    }
+    #endregion    
+    #region 2.3 Write Output Locally
+        $OutPut | Export-Csv -Path (Join-Path -Path $RemoteLogPath -ChildPath $RemoteLogName) -NoTypeInformation -Append -NoClobber
+    #endregion
     #write Output remotely, if chosen
     #write output to sql, if chosen
     Write-Log -iTabs 1 "Completed 2 - Execution." -sColor cyan
