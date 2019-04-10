@@ -260,14 +260,13 @@ function ConvertTo-Array{
     # $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS" #PVA
     $RemoteLogPath = "\\sccm01\Share\Logs" #VAR
     $RemoteLogName = "MissingUpdates$($cabver).log"
-    $SQLServer = "SQL01"
-    $SQLInstance = "MSSQLSERVER"
+    $SQLServer = "SQL01"    
     $SQLDB = "MissingUpdates"
     $SQLTable = "MissingUpdates1904"
     if ($Path -eq ".\wsusscn2.cab"){
         $Path = Join-Path -Path $sScriptPath -ChildPath "wsusscn2.cab"
     }
-    $cabVer="1903"
+    $cabVer="1904"
     # ****************************************************  
 #endregion 
 # --------------------------------------------------------------------------------------------
@@ -314,20 +313,34 @@ Function MainSub{
         }
     }
     if (($LogType -eq "SQLLog") -or ($LogType -eq "Both")){
-        Write-Log -iTabs 3 "Testing SQL Log Settings."        
-        $constr = "Server=$SQLServer;Database=$SQLDB;Trusted_Connection=True;"        
-        $newConnection = New-Object -TypeName System.Data.SqlClient.SqlConnection
-        $newConnection.ConnectionString = $constr        
-        Write-Log -iTabs 4 "Attempting to connect to the database $constr"           
-        try {            
-            $newConnection.Close()
-            $newConnection.Open()
-            Write-Log -iTabs 4 "Connection to database tested successfully." -sColor Green
-            $newConnection.Close()
+        Write-Log -iTabs 3 "Testing if Write-ObjectToSQL Module is found"
+        try{
+            if (!(Test-Path $(Join-Path -Path $sScriptPath -ChildPath "Write-ObjectToSQL.psm1") -ErrorAction Stop)){
+                throw "Module not found not found"
+            }
+            $psmFound = $true
+            Write-Log -iTabs 4 "Write-ObjectToSQL.psm1 found at $(Join-Path -Path $sScriptPath -ChildPath "Write-ObjectToSQL.psm1")." -sColor Green
         }
-        catch {
-            Write-Log -iTabs 4 "Could not open the connection. SQL logging will not be possible" -sColor Yellow                                  
-        }        
+        catch{
+            Write-Log -iTabs 4 "Write-ObjectToSQL.psm1 not found at $(Join-Path -Path $sScriptPath -ChildPath "Write-ObjectToSQL.psm1"). Script will proceed but won't log actions in SQL Server." -sColor Yellow
+            $psmFound = $false
+        }
+        if ($psmFound){
+            Write-Log -iTabs 3 "Testing SQL Log Settings."        
+            $constr = "Server=$SQLServer;Database=$SQLDB;Trusted_Connection=True;"        
+            $newConnection = New-Object -TypeName System.Data.SqlClient.SqlConnection
+            $newConnection.ConnectionString = $constr        
+            Write-Log -iTabs 4 "Attempting to connect to the database $constr"           
+            try {            
+                $newConnection.Close()
+                $newConnection.Open()
+                Write-Log -iTabs 4 "Connection to database tested successfully." -sColor Green
+                $newConnection.Close()
+            }
+            catch {
+                Write-Log -iTabs 4 "Could not open the connection. SQL logging will not be possible" -sColor Yellow                                  
+            }     
+        }   
     }
     #endregion
     Write-Log -iTabs 1 "Completed 1 - Pre-Checks."-sColor Cyan    
@@ -366,7 +379,7 @@ Function MainSub{
         $deployedUpdates=@()
         $count=1
         foreach ($SUGDeployment in $SUGDeployments){
-            Write-Log -iTabs 4 "($count/$($SUGDeployments.Count))$($SUGDeployment.AssignmentName) found! Getting Assigned CIs..."                
+            Write-Log -iTabs 4 "($count/$($SUGDeployments.Count))$($SUGDeployment.AssignmentName)."                                        
             foreach ($update in $SUGDeployment.AssignedCIs){
                 $UpdateObj=[pscustomobject]@{"DateTime"="";"ComputerName"="";"Source"="";"Article"="";"UpdateID"="";"Title"="";"UpdateClassification"="";"ProductId"="";"Categories"=""}
                 [xml]$ofxUpdate = $Update
@@ -386,33 +399,25 @@ Function MainSub{
                 $UpdateObj.Title = $ofxUpdate.ci.DisplayName
                 $UpdateObj.UpdateClassification = $ofxUpdate.ci.UpdateClassification
                 $UpdateObj.ProductId = $ofxUpdate.ci.ApplicabilityCondition.ApplicabilityRule.ProductId
-                $deployedUpdates+=$UpdateObj                
-            }
+                $deployedUpdates+=$UpdateObj                     
+            }            
             $count++
         }
         Write-Log -iTabs 4 "$($deployedUpdates.count) deployed updates found." -sColor Green
         Write-Log -iTabs 3 "Checking if Missing Updates are found within Deployed Updates." 
-        $count=1
-        #$deployedUpdates.UpdateID
         foreach ($missingUpdate in $sccmMissing){    
             if ($deployedUpdates.UpdateID -contains $missingUpdate.UniqueID){
                 Write-Log -iTabs 4 "Found update missing $($missingUpdate.Article) - $($missingUpdate.Title)" -sColor Red
                 $output+=$deployedUpdates | Where {$_.UpdateID -eq $missingUpdate.UniqueID}
-            }
-            else{
-                #Write-Host "$($missingUpdate.UniqueID) not found in deployed updates" -ForegroundColor Green
-                
-            }                  
-            $count++
-        }
-        Write-Log -iTabs 4 "$($output.count) updates missing from SCCM deployments." -sColor Green
+            }            
+        }        
     }
     else{
         Write-Log -iTabs 3 "Query to SCCM updates will not be performed due to pre-check 1.1 failure."
     }
-    #endregion
+    #endregion    
     #region 2.2 Get-MissingUpdates from WSUSSCN2.CAB     
-    Write-Log -iTabs 2 "Creating Update Searcher using wsusscn2.cab. This might take a few minutes."
+    Write-Log -iTabs 2 "Getting missing updates from wsusscn2.cab. This might take a few minutes."
     if ($wsusCabStatus){
         $UpdateSession = New-Object -ComObject Microsoft.Update.Session 
         $UpdateServiceManager  = New-Object -ComObject Microsoft.Update.ServiceManager 
@@ -448,6 +453,7 @@ Function MainSub{
             }             
             $UpdateObj.Categories = $catstr
             $output += $UpdateObj
+            Write-Log -iTabs 4 "Found update missing $($UpdateObj.Article) - $($UpdateObj.Title)" -sColor Red
             $count++
         }
         Write-Log -iTabs 4 "$count updates missing from WSUS CAB." -sColor Green
@@ -458,10 +464,39 @@ Function MainSub{
     }
     #endregion    
     #region 2.3 Write Output Locally
-        $OutPut | Export-Csv -Path (Join-Path -Path $RemoteLogPath -ChildPath $RemoteLogName) -NoTypeInformation -Append -NoClobber
+    Write-Log -iTabs 2 "Writting Log Locally at $(Join-Path -Path $sLogRoot -ChildPath $RemoteLogName)."
+    try{
+        $OutPut | Export-Csv -Path (Join-Path -Path $sLogRoot -ChildPath $RemoteLogName) -NoTypeInformation -Append -NoClobber
+        Write-Log -iTabs 3 "Log Created." -sColor Green
+    }
+    catch{
+        Write-Log -iTabs 3 "Error creating Log." -sColor Red
+    }
     #endregion
-    #write Output remotely, if chosen
-    #write output to sql, if chosen
+    #region 2.4 write Output remotely, if chosen
+    if (($LogType -eq "RemoteLog") -or ($LogType -eq "Both")){
+        Write-Log -iTabs 2 "Writting remote Log at $(Join-Path -Path $sLogRoot -ChildPath $RemoteLogName)."        
+        try{
+            $OutPut | Export-Csv -Path (Join-Path -Path $RemoteLogPath -ChildPath $RemoteLogName) -NoTypeInformation -Append -NoClobber
+            Write-Log -iTabs 3 "Remote Log Created." -sColor Green
+        }
+        catch{
+            Write-Log -iTabs 3 "Error creating Remote Log." -sColor Red
+        }
+    }
+    #endregion
+    #region 2.5 Write output to sql, if chosen
+    if (($LogType -eq "SQLLog") -or ($LogType -eq "Both")){
+        Write-Log -iTabs 2 "Writting SQL Log at SQL: $SQLServer\$SQLDB at table $SQLTable."        
+        try{
+            $OutPut |  Write-ObjectToSQL -Server $SQLServer -Database $SQLDB -TableName $SQLTable | Out-Null #-WarningAction Stop -ErrorAction Stop        
+            Write-Log -iTabs 3 "SQL Log Created." -sColor Green
+        }
+        catch{
+            Write-Log -iTabs 3 "Error creating SQL Log." -sColor Red
+        }
+    }
+    #endregion
     Write-Log -iTabs 1 "Completed 2 - Execution." -sColor cyan
     Write-Log -iTabs 0 -bConsole $true
 #endregion
