@@ -462,7 +462,8 @@ Function MainSub{
     else{
         Write-Log -iTabs 3 "Query to WSUS updates will not be performed due to pre-check 1.2 failure."
     }
-    #endregion    
+    #endregion 
+    if ($output.count -gt 0){   
     #region 2.3 Write Output Locally
     Write-Log -iTabs 2 "Writting Log Locally at $(Join-Path -Path $sLogRoot -ChildPath $RemoteLogName)."
     try{
@@ -497,6 +498,11 @@ Function MainSub{
         }
     }
     #endregion
+    }
+    else{
+        Write-Log -iTabs 2 "No updates missing were found. Logs will not be written."
+    }
+
     Write-Log -iTabs 1 "Completed 2 - Execution." -sColor cyan
     Write-Log -iTabs 0 -bConsole $true
 #endregion
