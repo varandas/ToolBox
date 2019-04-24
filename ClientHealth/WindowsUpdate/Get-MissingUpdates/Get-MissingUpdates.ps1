@@ -258,8 +258,8 @@ function ConvertTo-Array{
     $iLogFileSize 	= 1048576
     # ****************************************************
 # Specific Variables
-    # $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS" #PVA
-    $RemoteLogPath = "\\sccm01\Share\Logs" #VAR
+    $RemoteLogPath = "\\sccm01\Logs\SCCM\WSUS" #PVA
+    # $RemoteLogPath = "\\sccm01\Share\Logs" #VAR
     $RemoteLogName = "MissingUpdates$($cabver).log"
     $SQLServer = "SQL01"    
     $SQLDB = "MissingUpdates"
