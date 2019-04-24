@@ -13,7 +13,8 @@
 #>
 param( 
     [string]$Path=".\wsusscn2.cab",
-    [ValidateSet("RemoteLog","SQLLog","Both")][string]$LogType
+    [ValidateSet("RemoteLog","SQLLog","Both")][string]$LogType,
+    [boolean]$Debugger=$false
 )
 # --------------------------------------------------------------------------------------------
 #region HEADER
@@ -357,7 +358,12 @@ Function MainSub{
     If ($sccmUpdateStatus -ne $false){
         Write-Log -iTabs 3 "Querying CCM_UpdatesStore WMI."
         try{
-            $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus WHERE Status = 'Missing'" 
+            if (!$Debugger){
+                $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus WHERE Status = 'Missing'" 
+            }
+            else{
+                $sccmMissing = Get-WmiObject -Namespace ROOT\ccm\SoftwareUpdates\UpdatesStore -Query "Select * from CCM_UpdateStatus" 
+            }
             Write-Log -iTabs 4 "$($sccmMissing.Count) updates found missing from WMI." -sColor Green
         }
         catch{
@@ -418,7 +424,8 @@ Function MainSub{
     #endregion    
     #region 2.2 Get-MissingUpdates from WSUSSCN2.CAB     
     Write-Log -iTabs 2 "Getting missing updates from wsusscn2.cab. This might take a few minutes."
-    if ($wsusCabStatus){
+    if (($wsusCabStatus) -and (!$debugger))
+    {
         $UpdateSession = New-Object -ComObject Microsoft.Update.Session 
         $UpdateServiceManager  = New-Object -ComObject Microsoft.Update.ServiceManager 
         $UpdateService = $UpdateServiceManager.AddScanPackageService("Offline Sync Service",$Path, 1) 
@@ -489,12 +496,19 @@ Function MainSub{
     #region 2.5 Write output to sql, if chosen
     if (($LogType -eq "SQLLog") -or ($LogType -eq "Both")){
         Write-Log -iTabs 2 "Writting SQL Log at SQL: $SQLServer\$SQLDB at table $SQLTable."        
-        try{
-            $OutPut |  Write-ObjectToSQL -Server $SQLServer -Database $SQLDB -TableName $SQLTable | Out-Null #-WarningAction Stop -ErrorAction Stop        
-            Write-Log -iTabs 3 "SQL Log Created." -sColor Green
+        Import-Module $(Join-Path -Path $sScriptPath -ChildPath "Write-ObjectToSQL.psm1")
+        if (!$debugger){
+            try{            
+                $OutPut |  Write-ObjectToSQL -Server $SQLServer -Database $SQLDB -TableName $SQLTable | Out-Null #-WarningAction Stop -ErrorAction Stop                        
+                Write-Log -iTabs 3 "SQL Log Created." -sColor Green
+            }
+            catch{
+                Write-Log -iTabs 3 "Error creating SQL Log." -sColor Red
+            }
         }
-        catch{
-            Write-Log -iTabs 3 "Error creating SQL Log." -sColor Red
+        Else{
+            $OutPut |  Write-ObjectToSQL -Server $SQLServer -Database $SQLDB -TableName $SQLTable -WarningAction Continue -ErrorAction Continue        
+            Write-Log -iTabs 3 "SQL Log Created." -sColor Green
         }
     }
     #endregion
