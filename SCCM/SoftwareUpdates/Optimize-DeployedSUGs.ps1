@@ -353,7 +353,7 @@ Function Test-SccmUpdateSuperseded{
     else{
         return $false
     }
-}S
+}
 Function Test-SCCMUpdateAge{
     param(
         [Parameter(Mandatory = $true)]
