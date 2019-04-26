@@ -1,0 +1,21 @@
+Pre
+	PS Module
+	Script Arguments
+	Admin User
+	Upd Classification Info
+	Product Info
+	Check if ADR exists
+	SUG Info (Get initial update count)
+		MSFT (Updates valid from MSFT (based on prod and upd classification)
+		Blacklist (Updates ban from environment)
+		Report (updates valid AND deployed)
+		Missing (updates valid AND not deployed = target zero)
+Exec
+	Confirm ADR queries all Products and Upd Classifications
+	Query SCCM for all Updates matching criteria
+		Build/Update MSFT SUG
+	Query SCCM for all Updates deployed in template, matching Upd Classification and Product Criterias MINUS BlackList updates
+		Build/Update Report SUG
+	Query SCCM for updates found in MSFT and NOT FOUND in Report or Blacklist
+Pos
+	Get final Update count. compare both

@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-16"?>
+	<UpdateXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Name="SMS_SoftwareUpdate" LocaleId="1033">
+		<UpdateXMLDescriptionItems>
+			<UpdateXMLDescriptionItem PropertyName="DateRevised" UIPropertyName="">
+				<MatchRules>
+					<string>0:0:3:0</string>
+				</MatchRules>
+			</UpdateXMLDescriptionItem>
+			<UpdateXMLDescriptionItem PropertyName="_Product" UIPropertyName="">
+				<MatchRules>
+					<string>'Product:bfe5b177-a086-47a0-b102-097e4fa1f807'</string>
+					<string>'Product:fdfe8200-9d98-44ba-a12a-772282bf60ef'</string>
+					<string>'Product:4e487029-f550-4c22-8b31-9173f3f95786'</string>
+					<string>'Product:5cc25303-143f-40f3-a2ff-803a1db69955'</string>
+					<string>'Product:ca6616aa-6310-4c2d-a6bf-cae700b85e86'</string>
+					<string>'Product:25aed893-7c2d-4a31-ae22-28ff8ac150ed'</string>
+					<string>'Product:30eb551c-6288-4716-9a78-f300ec36d72b'</string>
+					<string>'Product:a3c2375d-0c8a-42f9-bce0-28333e198407'</string>
+					<string>'Product:6407468e-edc7-4ecd-8c32-521f64cee65e'</string>
+					<string>'Product:d31bd4c3-d872-41c9-a2e7-231f372588cb'</string>
+					<string>'Product:569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5'</string>
+					<string>'Product:f702a48c-919b-45d6-9aef-ca4248d50397'</string>
+					<string>'Product:eef074e9-61d6-4dac-b102-3dbe15fff3ea'</string>
+				</MatchRules>
+			</UpdateXMLDescriptionItem>
+			<UpdateXMLDescriptionItem PropertyName="IsSuperseded" UIPropertyName="">
+				<MatchRules>
+					<string>false</string>
+				</MatchRules>
+			</UpdateXMLDescriptionItem>
+			<UpdateXMLDescriptionItem PropertyName="LocalizedDisplayName" UIPropertyName="">
+				<MatchRules>
+					<string>-for x86</string>
+					<string>-for ARM</string>
+					<string>-1607</string>
+					<string>-1703</string>
+					<string>-1709</string>
+					<string>-for Itanium</string>
+					<string>-Server 2016 (</string>
+					<string>-Server 2019 (</string>
+					<string>-Security Only</string>
+				</MatchRules>
+			</UpdateXMLDescriptionItem>
+			<UpdateXMLDescriptionItem PropertyName="_UpdateClassification" UIPropertyName="">
+				<MatchRules>
+					<string>'UpdateClassification:e6cf1350-c01b-414d-a61f-263d14d133b4'</string>
+					<string>'UpdateClassification:0fa1201d-4330-4fa8-8ae9-b877473b6441'</string>
+					<string>'UpdateClassification:cd5ffd1e-e932-4e3a-bf74-18bf0b1bbd83'</string>
+				</MatchRules>
+			</UpdateXMLDescriptionItem>
+		</UpdateXMLDescriptionItems>
+	</UpdateXML>
