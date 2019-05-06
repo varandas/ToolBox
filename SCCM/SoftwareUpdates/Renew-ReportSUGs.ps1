@@ -132,6 +132,7 @@ Function How-ToScript(){
             9011 - Error while processing new SUG
             9012 - Error while processing stable SUG
             9013 - Error while processing aged SUG
+            9014 - Error while checking/Creating SUG
             9999 - Unhandled Exception     
 
    
@@ -290,7 +291,67 @@ function ConvertTo-Array{
 }
 #endregion
 # --------------------------------------------------------------------------------------------
-
+#region SCRIPT FUNCTIONS
+function Check-SUG(){
+# --------------------------------------------------------------------------------------------
+# Function Check-SUG
+# Purpose: Checks to see if a SUG is found and if not, guide user through creation process
+# Parameters: SUG Name
+# Returns: None
+# --------------------------------------------------------------------------------------------
+    param( 
+        [Parameter(Mandatory = $true)][string]$SUGName
+    )
+    #Check if SUG Exists
+    try{
+        $sug = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -eq $SUGName}
+    }
+    catch{                                                                        
+        Write-Log -iTabs 4 "Unable to query Software Update Groups. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red                        
+        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+        $global:iExitCode = 9005
+        return $global:iExitCode
+    }      
+    #sug was found
+    if ($sug.Count -eq 1){                        
+        Write-Log -iTabs 5 "$SUGName was found." -bConsole $true -sColor Green
+        return $sug                   
+    }
+    #sug was not found
+    else{
+        Write-Log -iTabs 4 "$SUGName wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
+        do{
+            if($action -like "*Run"){$answer = "Y"}
+            else{
+                $answer = Read-Host "                                      Do you want to create Software Update Group '$SUGName'? [Y/n] "                
+            }
+        } while (($answer -ne "Y") -and ($answer -ne "n"))
+        #aborting script
+        if ($answer -eq "n"){                
+            Write-Log -iTabs 5 "User don't want to create Software Update Group $SUGName at this moment"-bConsole $true -sColor red
+            Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
+            $global:iExitCode = 5002
+            return $global:iExitCode
+        }   
+        # Creating sugMSFT
+        if ($answer -eq "y"){                                            
+            Write-Log -iTabs 4 "Creating $SUGName..." -bConsole $true
+            try{
+                New-CMSoftwareUpdateGroup -Name $SUGName | Out-Null                                
+                Write-Log -iTabs 5 "$SUGName was created" -bConsole $true -sColor green  
+                return $sug                                                             
+            }    
+            catch{                                
+                Write-Log -iTabs 5 "Error while creating $SUGName. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
+                Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9006
+                return $global:iExitCode                            
+            }            
+        } 
+    }    
+}
+#endregion
+# --------------------------------------------------------------------------------------------
 #region VARIABLES
 # Standard Variables
     # *****  Change Logging Path and File Name Here  *****    
@@ -960,182 +1021,30 @@ Function MainSub{
             #endregion
             #region Checking SUGs           
                 Write-Log -iTabs 3 "Checking if SUGs are present." -bConsole $true
-                #region Gettings SUG Info         
-                try{
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | ConvertTo-Array                                               
-                    }
-                #Error while getting SUG Info
-                catch{                                                                        
-                        Write-Log -iTabs 4 "Unable to query Software Update Groups. Permission Error. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red                        
-                        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 9005
-                        return $global:iExitCode
-                    }      
-                #endregion             
-                #region sugMSFT
-                #sugMSFT was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)MSFT was found." -bConsole $true
-                    $sugMSFT = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}
+                #region Gettings SUG Info
+                try{                         
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"MSFT")." -bConsole $true
+                    $sugMSFT=Check-SUG -SUGName $($TemplateName+"MSFT")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Blacklist")." -bConsole $true
+                    $sugBlacklist=Check-SUG -SUGName $($TemplateName+"Blacklist")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"WhiteList")." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($TemplateName+"WhiteList")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Report")." -bConsole $true
+                    $sugReport=Check-SUG -SUGName $($TemplateName+"Report")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Missing")." -bConsole $true
+                    $sugMissing=Check-SUG -SUGName $($TemplateName+"Missing")
                 }
-                #sugMSFT was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)MSFT wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)MSFT'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)MSFT at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugMSFT
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)MSFT..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)MSFT" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)MSFT was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)MSFT. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"} 
-                    } 
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9014
+                    return $global:iExitCode    
                 }
-                #endregion     
-                #region sugBlacklist
-                #sugBlacklist was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Blacklist was found." -bConsole $true
-                    $sugBlacklist = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"}
-                }
-                #sugBlacklist was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Blacklist wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Blacklist'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Blacklist at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugBlacklist
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Blacklist..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Blacklist" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Blacklist was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Blacklist. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"} 
-                    } 
-                }
-                #endregion   
-                #region sugReport
-                #sugReport was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Report was found." -bConsole $true
-                    $sugReport = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}
-                }
-                #sugReport was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Report wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Report'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Report at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugReport
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Report..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Report" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Report was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Report. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"} 
-                    } 
-                }
-                #endregion   
-                #region sugMissing
-                #sugMissing was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Missing was found." -bConsole $true
-                    $sugMissing = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}
-                }
-                #sugMissing was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Missing wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Missing'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Missing at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugMissing
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Missing..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Missing" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Missing was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Missing. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"} 
-                    } 
-                }
-                #endregion               
+                #endregion
             #endregion           
             #region Query all valid MSFT Updates            
             Write-Log -iTabs 3 "Query all valid MSFT Updates." -bConsole $true
@@ -1150,10 +1059,10 @@ Function MainSub{
                     $prodCheck=$false
                     $catCheck=$false
                     foreach ($cat in $upd.CategoryInstance_UniqueIDs){
-                        if (($cat -like "Product*") -and ($updateProducts.ProductID -contains $($cat -replace "Product:",""))){
+                        if ($updateProducts.ProductID -contains $($cat -replace "Product:","")){
                             $prodCheck=$true
                         }
-                        elseif(($cat -like "Update*") -and ($updateClassification.ProductID -contains $($cat -replace "UpdateClassification:",""))){
+                        elseif($updateClassification.ProductID -contains $($cat -replace "UpdateClassification:","")){
                             $catCheck=$true
                         }
                     }
@@ -1174,7 +1083,7 @@ Function MainSub{
             Write-Log -iTabs 3 "Query all Deployed Updates." -bConsole $true            
             #Getting all Deployed SUGs
             try{
-                    $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*" -and $_.IsDeployed -eq $true} | ConvertTo-Array                                               
+                    $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*" -and $_.IsDeployed -eq $true} #| ConvertTo-Array                                               
             }
             #Error while getting SUG Info
             catch{                                                                        
@@ -1186,31 +1095,34 @@ Function MainSub{
             #from each sug, get all CI_IDs
             $deployedUpdates =@()
             foreach ($sug in $sugs){
-                foreach ($upd in $sug.Updates){
-                    $deployedUpdates+=$upd
-                }
-            }
+                $deployedUpdates+=$sug.Updates                
+            }            
             Write-Log -iTabs 4 "$($deployedUpdates.Count) updates found as currently deployed." -bConsole $true            
-            Write-Log -iTabs 4 "Not all deployed updates are meant to be tracked." -bConsole $true            
+            $trackedUpd = $MSFTUpdates.CI_ID | Where-Object {$deployedUpdates -contains $_}          
+            Write-Log -iTabs 4 "And from these, $($trackedUpd.Count) are meant to be tracked." -bConsole $true            
             #endregion
     #endregion    
     #region 1.4 Finalizing Pre-Checks      
     Write-Log -iTabs 2 "1.4 - Finalizing Pre-Checks:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "SCCM WMI Info: $($MSFTUpdates.Count) updates found to be tracked." -bConsole $true
+    Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true
+    Write-Log -itabs 3 "$($trackedUpd.Count) Updates to be tracked from deployed updates." -bConsole $true
     Write-Log -itabs 3
-    Write-Log -itabs 3 "Deployed SUG Information: $($deployedUpdates.Count) Updates found as Deployed." -bConsole $true
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
-    Write-Log -iTabs 4 "$($templateName)MSFT -> SUG containing all valid updates, matching defined criteria for tracking"
-    $initSugMsftUpd = $sugMSFT.Updates.Count
+    Write-Log -iTabs 4 "$($sugMSFT.LocalizedDisplayName) -> SUG containing all valid updates, matching defined criteria for tracking"
+                        $initSugMsftUpd = $sugMSFT.Updates.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd"
-    Write-Log -iTabs 4 "$($templateName)Blacklist -> SUG containing all forbidden updates"
-    $initSugBlacklistUpd = $sugBlacklist.Updates.Count
+    Write-Log -iTabs 4 "$($sugBlacklist.LocalizedDisplayName) -> SUG containing all forbidden updates"
+                        $initSugBlacklistUpd = $sugBlacklist.Updates.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd"
-    Write-Log -iTabs 4 "$($templateName)Report -> SUG containing all deployed updates, matching defined criteria for tracking"
-    $initSugReportUpd = $sugReport.Updates.Count
+    Write-Log -iTabs 4 "$($sugWhiteList.LocalizedDisplayName) -> SUG containing all must-have updates"
+                        $initSugWhiteListUpd = $sugWhiteList.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd"
+    Write-Log -iTabs 4 "$($sugReport.LocalizedDisplayName) -> SUG containing all deployed updates, matching defined criteria for tracking"
+                        $initSugReportUpd = $sugReport.Updates.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd"
-    Write-Log -iTabs 4 "$($templateName)Missing -> SUG containing all valid updates, not found deployed. target to have zero updates"
-    $initSugMissingUpd = $sugMissing.Updates.Count
+    Write-Log -iTabs 4 "$($sugMissing.LocalizedDisplayName) -> SUG containing all valid updates, not found deployed. target to have zero updates"
+                        $initSugMissingUpd = $sugMissing.Updates.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
     #endregion
     Write-Log -iTabs 1 "Completed 1 - Pre-Checks." -bConsole $true -sColor Cyan    
@@ -1222,105 +1134,13 @@ Function MainSub{
 #region 2_EXECUTION
     Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan    
     #region 2.1 - Making sure MSFT SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing MSFT SUG."     
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if ($sugMSFT.Updates -notcontains $MSFTUpd.CI_ID){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugMSFT.LocalizedDisplayName)"
-            try{
-                if ($action -like "*Run"){
-                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName | Out-Null
-                }
-                Write-Log -iTabs 4 "Update $($MSFTUpd.CI_ID) added to $($sugMSFT.LocalizedDisplayName)" -sColor Green
-            }
-            catch{
-                Write-Log -iTabs 4 "Error adding $($MSFTUpd.CI_ID) to $($sugMSFT.LocalizedDisplayName)" -sColor Red
-            }
-        }
-    }
-     
-    foreach($oldUpd in $sugMSFT.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName -Force
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
-                }
-        }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)MSFT information." -bConsole $true
-    $sugMSFT = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}
+    
     #endregion
-    #region 2.2 - Making sure Report SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing Report SUG." 
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if (($sugReport.Updates -notcontains $MSFTUpd.CI_ID) -and ($sugBlacklist.Updates -notcontains $MSFTUpd.CI_ID) -and ($deployedUpdates -contains $MSFTUpd.CI_ID)){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugReport.LocalizedDisplayName)"
-                try{
-                    if ($action -like "*Run"){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugReport.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$($MSFTUpd.CI_ID) added"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error adding $MSFTUpd to $($sugReport.LocalizedDisplayName)"
-                }
-        }
-    }
-    foreach($oldUpd in $sugReport.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
-                }
-        }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)Report information." -bConsole $true
-    $sugReport = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}
+    #region 2.2 - Making sure Report SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
+    
     #endregion
-
-    #region 2.3 - Making sure Missing SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing Missing SUG." 
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if (($sugReport.Updates -contains $MSFTUpd.CI_ID) -and ($sugBlacklist.Updates -notcontains $MSFTUpd.CI_ID) -and ($sugMissing.Updates -notcontains $MSFTUpd.CI_ID)){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugMissing.LocalizedDisplayName)"
-                try{
-                    if ($action -like "*Run"){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugReport.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$($MSFTUpd.CI_ID) added"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error adding $MSFTUpd to $($sugReport.LocalizedDisplayName)"
-                }
-        }
-    }
-    foreach($oldUpd in $sugReport.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
-                }
-        }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)Missing information." -bConsole $true
-    $sugMissing = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}
+    #region 2.3 - Making sure Missing SUG has most recent list of Updates, if not deployed, except those in BlackList and including those in WhiteList
+    
     #endregion
     Write-Log -iTabs 1 "Completed 2 - Execution." -bConsole $true -sColor cyan
     Write-Log -iTabs 0 -bConsole $true
@@ -1333,26 +1153,33 @@ Function MainSub{
     Write-Log -iTabs 1 "Starting 3 - Post-Checks." -bConsole $true -sColor cyan
     #region 3.1 Comparing results      
     Write-Log -iTabs 2 "3.1 Comparing results:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "SCCM WMI Info: $($MSFTUpdates.Count) updates found to be tracked." -bConsole $true
+    Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true
+    Write-Log -itabs 3 "$($trackedUpd.Count) Updates to be tracked from deployed updates." -bConsole $true
     Write-Log -itabs 3
-    Write-Log -itabs 3 "Deployed SUG Information: $($deployedUpdates.Count) Updates found as Deployed." -bConsole $true
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
-    Write-Log -iTabs 4 "$($templateName)MSFT -> SUG containing all valid updates, matching defined criteria for tracking"
-    $finalSugMsftUpd = $sugMSFT.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugMsftUpd"
-    Write-Log -iTabs 4 "$($templateName)Blacklist -> SUG containing all forbidden updates"
-    $finalSugBlacklistUpd = $sugBlacklist.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugBlacklistUpd"
-    Write-Log -iTabs 4 "$($templateName)Report -> SUG containing all deployed updates, matching defined criteria for tracking"
-    $finalSugReportUpd = $sugReport.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugReportUpd"
-    Write-Log -iTabs 4 "$($templateName)Missing -> SUG containing all valid updates, not found deployed. target to have zero updates"
-    $finalSugMissingUpd = $sugMissing.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugMissingUpd"   
+    Write-Log -iTabs 4 "$($sugMSFT.LocalizedDisplayName) -> SUG containing all valid updates, matching defined criteria for tracking"
+                        $finalSugMsftUpd = $sugMSFT.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugMsftUpd"
+    Write-Log -iTabs 4 "$($sugBlacklist.LocalizedDisplayName) -> SUG containing all forbidden updates"
+                        $finalSugBlacklistUpd = $sugBlacklist.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugBlacklistUpd"
+    Write-Log -iTabs 4 "$($sugWhiteList.LocalizedDisplayName) -> SUG containing all must-have updates"
+                        $finalSugWhiteListUpd = $sugWhiteList.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugWhiteListUpd"
+    Write-Log -iTabs 4 "$($sugReport.LocalizedDisplayName) -> SUG containing all deployed updates, matching defined criteria for tracking"
+                        $finalSugReportUpd = $sugReport.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugReportUpd"
+    Write-Log -iTabs 4 "$($sugMissing.LocalizedDisplayName) -> SUG containing all valid updates, not found deployed. target to have zero updates"
+                        $finalSugMissingUpd = $sugMissing.Updates.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugMissingUpd"    
+    Write-Log -itabs 3
+    
     #endregion
     Write-Log -iTabs 1 "Completed 3 - Post-Checks." -bConsole $true -sColor cyan
     Write-Log -iTabs 0 "" -bConsole $true
