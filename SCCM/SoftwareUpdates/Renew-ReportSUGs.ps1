@@ -1134,13 +1134,265 @@ Function MainSub{
 #region 2_EXECUTION
     Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan    
     #region 2.1 - Making sure MSFT SUG has most recent list of Updates
-    
+    Write-Log -iTabs 2 "Refreshing $($sugMSFT.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugMSFT.LocalizedDisplayName)"
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$sugMSFT.Updates -Notcontains $_ }
+        if ($updstoAdd.count -eq 0){
+            Write-Log -itabs 4 "All valid Updates were found in $($sugMSFT.LocalizedDisplayName)" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($sugMSFT.LocalizedDisplayName)" -sColor DarkRed
+            Write-Log -itabs 5 "Adding updates to $($sugMSFT.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $updstoAdd -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates added to $($sugMSFT.LocalizedDisplayName)" -sColor Green
+                try{                         
+                    Write-Log -iTabs 4 "Refreshing $($sugMSFT.LocalizedDisplayName) info." -bConsole $true
+                    $sugMSFT=Check-SUG -SUGName $($sugMSFT.LocalizedDisplayName)                  
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9015
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error adding updates to $($sugMSFT.LocalizedDisplayName)" -sColor red
+            }
+        }    
+        Write-Log -iTabs 3 "Checking if all updates found in $($sugMSFT.LocalizedDisplayName) are also found as `"Valid Updates`"."
+        $updToRemove = $sugMSFT.Updates | Where-Object {$MSFTUpdates.CI_ID -NotContains $_ }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($sugMSFT.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugMSFT.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugMSFT.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates removed from $($sugMSFT.LocalizedDisplayName)" -sColor Green
+                try{                         
+                    Write-Log -iTabs 4 "Refreshing $($sugMSFT.LocalizedDisplayName) info." -bConsole $true
+                    $sugMSFT=Check-SUG -SUGName $($sugMSFT.LocalizedDisplayName)                  
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9016
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugMSFT.LocalizedDisplayName)" -sColor red
+            }
+        }    
     #endregion
-    #region 2.2 - Making sure Report SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
-    
+    #region 2.2 - Making sure Blacklist SUG has valid Updates, if deployed, except those in BlackList and including those in WhiteList
+    Write-Log -iTabs 2 "Refreshing $($sugBlackList.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found $($sugBlackList.LocalizedDisplayName) are `"Valid Updates`""    
+        $updToRemove = @()
+        foreach ($blUpd in $sugBlacklist.updates){
+            $upd = Get-CMSoftwareUpdate -Id $blUpd
+            if ($upd.IsExpired -or $upd.IsSuperseded){
+                $updToRemove += $upd
+            }
+            if($upd.IsSuperseded){
+                Write-Log -iTabs 4 "$($upd.LocalizedDisplayName)" -sColor Yellow
+                Write-Log -iTabs 4 "$($upd.ArticleID) was supersede! Strongly recommended to evaluate new updates and consider adding to SUG!" -sColor Yellow                
+            }
+        }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($sugBlackList.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugBlackList.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugBlackList.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates removed from $($sugBlackList.LocalizedDisplayName)" -sColor Green
+                try{                         
+                    Write-Log -iTabs 4 "Refreshing $($sugBlackList.LocalizedDisplayName) info." -bConsole $true
+                    $sugBlacklist=Check-SUG -SUGName $($sugBlackList.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9017
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugBlackList.LocalizedDisplayName)" -sColor red
+            }
+        }
     #endregion
-    #region 2.3 - Making sure Missing SUG has most recent list of Updates, if not deployed, except those in BlackList and including those in WhiteList
-    
+    #region 2.3 - Making sure Whitelist SUG has valid Updates, if deployed, except those in BlackList and including those in WhiteList
+    Write-Log -iTabs 2 "Refreshing $($sugWhiteList.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found $($sugWhiteList.LocalizedDisplayName) are `"Valid Updates`""    
+        $updToRemove = @()
+        foreach ($wlUpd in $sugWhiteList.updates){
+            $upd = Get-CMSoftwareUpdate -Id $wlUpd
+            if ($upd.IsExpired -or $upd.IsSuperseded){
+                $updToRemove += $upd
+            }
+            if($upd.IsSuperseded){
+                Write-Log -iTabs 4 "$($upd.LocalizedDisplayName)" -sColor Yellow
+                Write-Log -iTabs 4 "$($upd.ArticleID) was supersede! Strongly recommended to evaluate new updates and consider adding to SUG!" -sColor Yellow                
+            }
+        }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($sugWhiteList.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugWhiteList.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugWhiteList.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates removed from $($sugWhiteList.LocalizedDisplayName)" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($sugWhiteList.LocalizedDisplayName) info." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($sugWhiteList.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9018
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugWhiteList.LocalizedDisplayName)" -sColor red
+            }
+        }    
+    #endregion
+    #region 2.4 - Making sure Report SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
+    Write-Log -iTabs 2 "Refreshing $($sugReport.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugReport.LocalizedDisplayName), "
+        Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($trackedUpd -contains $_ -and $sugReport.Updates -Notcontains $_ -and $sugBlackList.Updates -NotContains $_) -or ($sugReport.Updates -Notcontains $_ -and $sugWhiteList.Updates -contains $_)}
+        if ($updstoAdd.count -eq 0){
+            Write-Log -itabs 4 "All valid Updates were found in $($sugMSFT.LocalizedDisplayName)" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($sugReport.LocalizedDisplayName)" -sColor DarkRed
+            Write-Log -itabs 5 "Adding updates to $($sugReport.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $updstoAdd -SoftwareUpdateGroupName $($sugReport.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates added to $($sugReport.LocalizedDisplayName)" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($sugReport.LocalizedDisplayName) info." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9019
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error adding updates to $($sugReport.LocalizedDisplayName)" -sColor red
+            }
+        }    
+        Write-Log -iTabs 3 "Checking if all updates found in $($sugReport.LocalizedDisplayName) are also found as `"Valid Updates`"."
+        $updToRemove = $sugReport.Updates | Where-Object {$MSFTUpdates.CI_ID -NotContains $_ -or $sugBlackList.Updates -Contains $_ -or $sugWhiteList.Updates -NotContains $_ -or $trackedUpd -notcontains $_ }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($sugMSFT.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugMSFT.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugMSFT.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates removed from $($sugMSFT.LocalizedDisplayName)" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($sugReport.LocalizedDisplayName) info." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9020
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugMSFT.LocalizedDisplayName)" -sColor red
+            }
+        }        
+    #endregion
+    #region 2.5 - Making sure Missing SUG has most recent list of Updates, if not deployed, except those in BlackList and including those in WhiteList
+    Write-Log -iTabs 2 "Refreshing $($sugMissing.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates `"Valid Updates`" and not deployed are found in $($sugReport.LocalizedDisplayName), "
+        Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($deployedUpdates -notcontains $_ -or $sugBlackList.Updates -notcontains $_ ) -and $trackedUpd -contains $_ }                    
+        if ($updstoAdd.count -eq 0){
+            Write-Log -itabs 4 "All valid not deployed updates were found in $($sugMissing.LocalizedDisplayName)" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($sugMissing.LocalizedDisplayName)" -sColor DarkRed
+            Write-Log -itabs 5 "Adding updates to $($sugMissing.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $updstoAdd -SoftwareUpdateGroupName $($sugMissing.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates added to $($sugMissing.LocalizedDisplayName)" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($sugMissing.LocalizedDisplayName) info." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9020
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error adding updates to $($sugMissing.LocalizedDisplayName)" -sColor red
+            }
+        }    
+        Write-Log -iTabs 3 "Checking if all updates found in $($sugMissing.LocalizedDisplayName) are also found as `"Valid Updates`" and not deployed."
+        $updToRemove = $sugMissing.Updates | Where-Object { $deployedUpdates -contains $_ -or $sugBlacklist.Updates -contains $_ -or $MSFTUpdates -notcontains $_}
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($sugMissing.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugMissing.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugMissing.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMissing.LocalizedDisplayName)
+                }
+                Write-Log -itabs 5 "Updates removed from $($sugMissing.LocalizedDisplayName)" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($sugMissing.LocalizedDisplayName) info." -bConsole $true
+                    $sugWhiteList=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9021
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugMissing.LocalizedDisplayName)" -sColor red
+            }
+        }        
     #endregion
     Write-Log -iTabs 1 "Completed 2 - Execution." -bConsole $true -sColor cyan
     Write-Log -iTabs 0 -bConsole $true
