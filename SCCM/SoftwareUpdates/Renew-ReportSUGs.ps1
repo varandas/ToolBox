@@ -338,6 +338,7 @@ function Check-SUG(){
             try{
                 New-CMSoftwareUpdateGroup -Name $SUGName | Out-Null                                
                 Write-Log -iTabs 5 "$SUGName was created" -bConsole $true -sColor green  
+                $sug = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -eq $SUGName}
                 return $sug                                                             
             }    
             catch{                                
@@ -454,12 +455,13 @@ function Check-SUG(){
             $TemplateName = "VAR-"                        
             $timeReport = 15
             $severity = 8
-            $updateProducts = @(                                
-                [pscustomobject]@{"ProductID"="704a0a4a-518f-4d69-9e03-10ba44198bd5";"ProductName"=" Office 2013"}
-                [pscustomobject]@{"ProductID"="25aed893-7c2d-4a31-ae22-28ff8ac150ed";"ProductName"=" Office 2016"}                                
-                [pscustomobject]@{"ProductID"="a3c2375d-0c8a-42f9-bce0-28333e198407";"ProductName"=" Windows 10"}
-                [pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}                
-                [pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
+            $updateProducts = @(            
+                #[pscustomobject]@{"ProductID"="84f5f325-30d7-41c4-81d1-87a0e6535b66";"ProductName"=" Office 2010"}                    
+                #[pscustomobject]@{"ProductID"="704a0a4a-518f-4d69-9e03-10ba44198bd5";"ProductName"=" Office 2013"}
+                #[pscustomobject]@{"ProductID"="25aed893-7c2d-4a31-ae22-28ff8ac150ed";"ProductName"=" Office 2016"}                                
+                #[pscustomobject]@{"ProductID"="a3c2375d-0c8a-42f9-bce0-28333e198407";"ProductName"=" Windows 10"}
+                #[pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}                
+                #[pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
                 [pscustomobject]@{"ProductID"="f702a48c-919b-45d6-9aef-ca4248d50397";"ProductName"=" Windows Server 2019"}                                
             )            
             $updateClassification = @(                
@@ -1168,7 +1170,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugBlackList.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName) -Force
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove.CI_ID -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugBlackList.LocalizedDisplayName)" -sColor Green
                 try{                         
@@ -1209,7 +1211,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugWhiteList.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName) -Force
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove.CI_ID -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugWhiteList.LocalizedDisplayName)" -sColor Green
                 try{                                             
@@ -1232,9 +1234,10 @@ Function MainSub{
     Write-Log -iTabs 2 "Refreshing $($sugReport.LocalizedDisplayName)"
         Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugReport.LocalizedDisplayName), "
         Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
-        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($trackedUpd -contains $_ -and $sugReport.Updates -Notcontains $_ -and $sugBlackList.Updates -NotContains $_) -or ($sugReport.Updates -Notcontains $_ -and $sugWhiteList.Updates -contains $_)}
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$trackedUpd -contains $_ -and $sugReport.Updates -Notcontains $_ -and $sugBlackList.Updates -NotContains $_}
+        $updstoAdd += $sugWhiteList.Updates | Where-Object {$sugReport.Updates -Notcontains $_}
         if ($updstoAdd.count -eq 0){
-            Write-Log -itabs 4 "All valid Updates were found in $($sugMSFT.LocalizedDisplayName)" -sColor Gray
+            Write-Log -itabs 4 "All valid Updates were found in $($sugReport.LocalizedDisplayName)" -sColor Gray
         }
         else{
             Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($sugReport.LocalizedDisplayName)" -sColor DarkRed
@@ -1246,7 +1249,7 @@ Function MainSub{
                 Write-Log -itabs 5 "Updates added to $($sugReport.LocalizedDisplayName)" -sColor Green
                 try{                                             
                     Write-Log -iTabs 4 "Refreshing $($sugReport.LocalizedDisplayName) info." -bConsole $true
-                    $sugWhiteList=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
+                    $sugReport=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
                 }
                 catch{                    
                     Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
@@ -1260,21 +1263,21 @@ Function MainSub{
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($sugReport.LocalizedDisplayName) are also found as `"Valid Updates`"."
-        $updToRemove = $sugReport.Updates | Where-Object {$MSFTUpdates.CI_ID -NotContains $_ -or $sugBlackList.Updates -Contains $_ -or $sugWhiteList.Updates -NotContains $_ -or $trackedUpd -notcontains $_ }
+        $updToRemove = $sugReport.Updates | Where-Object {$MSFTUpdates.CI_ID -notcontains $_ -and $sugWhiteList.Updates -notcontains $_ }
         if ($updToRemove.count -eq 0){
-            Write-Log -itabs 4 "All Updates from $($sugMSFT.LocalizedDisplayName) were found as valid" -sColor Gray
+            Write-Log -itabs 4 "All Updates from $($sugReport.LocalizedDisplayName) were found as valid" -sColor Gray
         }
         else{
-            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugMSFT.LocalizedDisplayName) are no longer valid." -sColor DarkRed
-            Write-Log -itabs 5 "Removing updates from $($sugMSFT.LocalizedDisplayName)" 
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugReport.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($sugReport.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName) -Force
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugReport.LocalizedDisplayName) -Force
                 }
-                Write-Log -itabs 5 "Updates removed from $($sugMSFT.LocalizedDisplayName)" -sColor Green
+                Write-Log -itabs 5 "Updates removed from $($sugReport.LocalizedDisplayName)" -sColor Green
                 try{                                             
                     Write-Log -iTabs 4 "Refreshing $($sugReport.LocalizedDisplayName) info." -bConsole $true
-                    $sugWhiteList=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
+                    $sugReport=Check-SUG -SUGName $($sugReport.LocalizedDisplayName)                    
                 }
                 catch{                    
                     Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
@@ -1284,7 +1287,7 @@ Function MainSub{
                 }
             }
             catch{
-                Write-Log -itabs 5 "Error removing updates from $($sugMSFT.LocalizedDisplayName)" -sColor red
+                Write-Log -itabs 5 "Error removing updates from $($sugReport.LocalizedDisplayName)" -sColor red
             }
         }        
     #endregion
@@ -1292,7 +1295,8 @@ Function MainSub{
     Write-Log -iTabs 2 "Refreshing $($sugMissing.LocalizedDisplayName)"
         Write-Log -iTabs 3 "Checking if all updates `"Valid Updates`" and not deployed are found in $($sugReport.LocalizedDisplayName), "
         Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
-        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($deployedUpdates -notcontains $_ -or $sugBlackList.Updates -notcontains $_ ) -and $trackedUpd -contains $_ -and $sugReport.Updates -notcontains $_}                    
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$trackedUpd -notcontains $_ -and $sugBlackList.Updates -notcontains $_ -and $sugMissing.Updates -notcontains $_}
+        $updstoAdd += $sugWhiteList.Updates  | Where-Object {$sugMissing.Updates -notcontains $_ -and $sugReport.Updates -contains $_}
         if ($updstoAdd.count -eq 0){
             Write-Log -itabs 4 "All valid not deployed updates were found in $($sugMissing.LocalizedDisplayName)" -sColor Gray
         }
@@ -1306,7 +1310,7 @@ Function MainSub{
                 Write-Log -itabs 5 "Updates added to $($sugMissing.LocalizedDisplayName)" -sColor Green
                 try{                                             
                     Write-Log -iTabs 4 "Refreshing $($sugMissing.LocalizedDisplayName) info." -bConsole $true
-                    $sugWhiteList=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
+                    $sugMissing=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
                 }
                 catch{                    
                     Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
@@ -1320,7 +1324,7 @@ Function MainSub{
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($sugMissing.LocalizedDisplayName) are also found as `"Valid Updates`" and not deployed."
-        $updToRemove = $sugMissing.Updates | Where-Object { $deployedUpdates -contains $_ -or $sugBlacklist.Updates -contains $_ -or $MSFTUpdates -notcontains $_ -or $sugReport.Updates -contains $_}
+        $updToRemove = $sugMissing.Updates | Where-Object { $MSFTUpdates.CI_ID -notcontains $_ -or $sugBlacklist.Updates -contains $_ }
         if ($updToRemove.count -eq 0){
             Write-Log -itabs 4 "All Updates from $($sugMissing.LocalizedDisplayName) were found as valid" -sColor Gray
         }
@@ -1334,7 +1338,7 @@ Function MainSub{
                 Write-Log -itabs 5 "Updates removed from $($sugMissing.LocalizedDisplayName)" -sColor Green
                 try{                                             
                     Write-Log -iTabs 4 "Refreshing $($sugMissing.LocalizedDisplayName) info." -bConsole $true
-                    $sugWhiteList=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
+                    $sugMissing=Check-SUG -SUGName $($sugMissing.LocalizedDisplayName)                    
                 }
                 catch{                    
                     Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
