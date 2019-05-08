@@ -1173,7 +1173,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugMSFT.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName)
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugMSFT.LocalizedDisplayName)" -sColor Green
                 try{                         
@@ -1214,7 +1214,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugBlackList.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName)
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugBlackList.LocalizedDisplayName)" -sColor Green
                 try{                         
@@ -1255,7 +1255,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugWhiteList.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName)
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugWhiteList.LocalizedDisplayName)" -sColor Green
                 try{                                             
@@ -1315,7 +1315,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugMSFT.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName)
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMSFT.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugMSFT.LocalizedDisplayName)" -sColor Green
                 try{                                             
@@ -1375,7 +1375,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($sugMissing.LocalizedDisplayName)" 
             try{
                 if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMissing.LocalizedDisplayName)
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($sugMissing.LocalizedDisplayName) -Force
                 }
                 Write-Log -itabs 5 "Updates removed from $($sugMissing.LocalizedDisplayName)" -sColor Green
                 try{                                             
