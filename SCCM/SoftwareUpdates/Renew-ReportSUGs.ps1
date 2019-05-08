@@ -313,8 +313,7 @@ function Check-SUG(){
         return $global:iExitCode
     }      
     #sug was found
-    if ($sug.Count -eq 1){                        
-        Write-Log -iTabs 5 "$SUGName was found." -bConsole $true -sColor Green
+    if ($sug.Count -eq 1){                                
         return $sug                   
     }
     #sug was not found
@@ -1338,7 +1337,7 @@ Function MainSub{
     Write-Log -iTabs 2 "Refreshing $($sugMissing.LocalizedDisplayName)"
         Write-Log -iTabs 3 "Checking if all updates `"Valid Updates`" and not deployed are found in $($sugReport.LocalizedDisplayName), "
         Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
-        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($deployedUpdates -notcontains $_ -or $sugBlackList.Updates -notcontains $_ ) -and $trackedUpd -contains $_ }                    
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {($deployedUpdates -notcontains $_ -or $sugBlackList.Updates -notcontains $_ ) -and $trackedUpd -contains $_ -and $sugReport.Updates -notcontains $_}                    
         if ($updstoAdd.count -eq 0){
             Write-Log -itabs 4 "All valid not deployed updates were found in $($sugMissing.LocalizedDisplayName)" -sColor Gray
         }
@@ -1366,7 +1365,7 @@ Function MainSub{
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($sugMissing.LocalizedDisplayName) are also found as `"Valid Updates`" and not deployed."
-        $updToRemove = $sugMissing.Updates | Where-Object { $deployedUpdates -contains $_ -or $sugBlacklist.Updates -contains $_ -or $MSFTUpdates -notcontains $_}
+        $updToRemove = $sugMissing.Updates | Where-Object { $deployedUpdates -contains $_ -or $sugBlacklist.Updates -contains $_ -or $MSFTUpdates -notcontains $_ -or $sugReport.Updates -contains $_}
         if ($updToRemove.count -eq 0){
             Write-Log -itabs 4 "All Updates from $($sugMissing.LocalizedDisplayName) were found as valid" -sColor Gray
         }
