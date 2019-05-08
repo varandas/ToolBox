@@ -1197,7 +1197,7 @@ Function MainSub{
         Write-Log -iTabs 3 "Checking if all updates found $($sugBlackList.LocalizedDisplayName) are `"Valid Updates`""    
         $updToRemove = @()
         foreach ($blUpd in $sugBlacklist.updates){
-            $upd = Get-CMSoftwareUpdate -Id $blUpd
+            $upd = Get-CMSoftwareUpdate -Id $blUpd -fast
             if ($upd.IsExpired -or $upd.IsSuperseded){
                 $updToRemove += $upd
             }
@@ -1238,7 +1238,7 @@ Function MainSub{
         Write-Log -iTabs 3 "Checking if all updates found $($sugWhiteList.LocalizedDisplayName) are `"Valid Updates`""    
         $updToRemove = @()
         foreach ($wlUpd in $sugWhiteList.updates){
-            $upd = Get-CMSoftwareUpdate -Id $wlUpd
+            $upd = Get-CMSoftwareUpdate -Id $wlUpd  -fast
             if ($upd.IsExpired -or $upd.IsSuperseded){
                 $updToRemove += $upd
             }
