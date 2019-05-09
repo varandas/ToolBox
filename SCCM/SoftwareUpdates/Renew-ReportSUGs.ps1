@@ -453,15 +453,15 @@ function Check-SUG(){
             $SMSProvider = "sccm01.vlab.varandas.com"
             $SCCMSite = "VAR"
             $TemplateName = "VAR-"                        
-            $timeReport = 15
+            $timeReport = 45
             $severity = 8
             $updateProducts = @(            
                 #[pscustomobject]@{"ProductID"="84f5f325-30d7-41c4-81d1-87a0e6535b66";"ProductName"=" Office 2010"}                    
                 #[pscustomobject]@{"ProductID"="704a0a4a-518f-4d69-9e03-10ba44198bd5";"ProductName"=" Office 2013"}
                 #[pscustomobject]@{"ProductID"="25aed893-7c2d-4a31-ae22-28ff8ac150ed";"ProductName"=" Office 2016"}                                
                 #[pscustomobject]@{"ProductID"="a3c2375d-0c8a-42f9-bce0-28333e198407";"ProductName"=" Windows 10"}
-                #[pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}                
-                #[pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
+                [pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}                
+                [pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
                 [pscustomobject]@{"ProductID"="f702a48c-919b-45d6-9aef-ca4248d50397";"ProductName"=" Windows Server 2019"}                                
             )            
             $updateClassification = @(                
@@ -1001,16 +1001,14 @@ Function MainSub{
                     return $global:iExitCode    
                 }
                 #endregion
-            #endregion           
+            #endregion         
             #region Query all valid MSFT Updates            
             Write-Log -iTabs 3 "Query all valid MSFT Updates." -bConsole $true
             try{
-                $allUpds = Get-CMSoftwareUpdate -fast -DatePostedMax $(Get-Date).AddDays(-$timeReport)  | Where {
-                    $_.IsExpired-eq $false -and ` 
-                    $_.IsSuperseded -eq $false -and ` 
-                    $_.Severity -ge $severity       
-                } 
+                #get all updates not expired, not superseded above severity trehshold, older than date
+                $allUpds = Get-CMSoftwareUpdate -fast  | Where {$_.IsExpired-eq $false -and $_.Severity -ge $severity -and $_.IsSuperseded -eq $false -and $_.DatePosted -lt $(Get-Date).AddDays(-$timeReport)}                                   
                 $MSFTUpdates=@()
+                #from all updates, get retain those from the selected products, classification, add whitelist updates and remove blacklist update
                 foreach ($upd in $allUpds ){
                     $prodCheck=$false
                     $catCheck=$false
@@ -1021,12 +1019,12 @@ Function MainSub{
                         elseif($updateClassification.ProductID -contains $($cat -replace "UpdateClassification:","")){
                             $catCheck=$true
                         }
-                    }
-                    if ($prodCheck -and $catCheck){
+                    }   
+                    if($prodCheck -and $catCheck){
                         $MSFTUpdates+=$upd
-                    }    
-                }
-                 Write-Log -iTabs 4 "Found $($MSFTUpdates.Count) updates matching defined criteria." -bConsole $true                
+                    }
+                }                
+                 Write-Log -iTabs 4 "Found $($MSFTUpdates.Count) updates as valid." -bConsole $true                
             }
             catch{
                 Write-Log -iTabs 4 "Error getting Update info from SCCM WMI." -bConsole $true -sColor red
@@ -1054,15 +1052,15 @@ Function MainSub{
                 $deployedUpdates+=$sug.Updates                
             }            
             Write-Log -iTabs 4 "$($deployedUpdates.Count) updates found as currently deployed." -bConsole $true            
-            $trackedUpd = $MSFTUpdates.CI_ID | Where-Object {$deployedUpdates -contains $_}          
-            Write-Log -iTabs 4 "And from these, $($trackedUpd.Count) are meant to be tracked." -bConsole $true            
+            $updToBeTracked = $MSFTUpdates.CI_ID | Where-Object {$deployedUpdates -contains $_}                                
+            Write-Log -iTabs 4 "And from these, $($updToBeTracked.Count) are meant to be tracked." -bConsole $true            
             #endregion
     #endregion    
     #region 1.4 Finalizing Pre-Checks      
     Write-Log -iTabs 2 "1.4 - Finalizing Pre-Checks:" -bConsole $true -sColor cyan    
     Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
     Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true
-    Write-Log -itabs 3 "$($trackedUpd.Count) Updates to be tracked from deployed updates." -bConsole $true
+    Write-Log -itabs 3 "$($updToBeTracked.Count) Updates to be tracked from deployed updates." -bConsole $true
     Write-Log -itabs 3
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
     Write-Log -iTabs 4 "$($sugMSFT.LocalizedDisplayName) -> SUG containing all valid updates, matching defined criteria for tracking"
@@ -1088,8 +1086,79 @@ Function MainSub{
 
 # ===============================================================================================================================================================================
 #region 2_EXECUTION
-    Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan    
-    #region 2.1 - Making sure MSFT SUG has most recent list of Updates
+    Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan
+    #region 2.1 - Making sure Blacklist and Whitelist SUG has valid Updates
+    Write-Log -itabs 2 "Making sure Blacklist and Whitelist SUG have valid Updates"
+    $suglists=@($sugBlacklist,$sugWhiteList)    
+    foreach($suglist in $suglists){    
+        Write-Log -iTabs 2 "Refreshing $($suglist.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found $($suglist.LocalizedDisplayName) are `"Valid Updates`""    
+        $updToRemove = @()
+        foreach ($suglistUpdate in $suglist.updates){
+            $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast
+            if (($tempUpd.IsExpired -or $tempUpd.IsSuperseded) -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport)){
+                Write-Log -iTabs 5 "$tempUpd flagged for removal from $($suglist.LocalizedDisplayName)"
+                $updToRemove += $tempUpd
+            }
+            if($tempUpd.IsSuperseded){                
+                Write-Log -iTabs 4 "$($tempUpd.ArticleID) was supersede!" -sColor Yellow
+                if ($tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport)){
+                    Write-Log -iTabs 4 "$($tempUpd.ArticleID) will not be removed at this moment since is `"new`"" -sColor Yellow
+                }
+                Write-Log -iTabs 5 "Go to SCCM console and under update properties assess which update is newer and consider adding it to $($sugList.LocalizedDisplayName)."
+                Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+            }
+            if (($tempUpd.IsDeployed) -and ($suglist.LocalisedDisplayName -like "*Blacklist")){
+                Write-Log -iTabs 4 "$($tempUpd.ArticleID) is deployed and is part of Blacklist SUG!" -sColor Red
+                Write-Log -iTabs 5 "Go to SCCM console and review Update deployments."
+                Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+            }
+        }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($suglist.LocalizedDisplayName) were found as valid" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($suglist.LocalizedDisplayName) are no longer valid." -sColor DarkRed
+            Write-Log -itabs 5 "Removing updates from $($suglist.LocalizedDisplayName)" 
+            try{
+                if($action -like "*Run"){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove.CI_ID -SoftwareUpdateGroupName $($suglist.LocalizedDisplayName) -Force
+                }
+                Write-Log -itabs 5 "Updates removed from $($suglist.LocalizedDisplayName)" -sColor Green
+                
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($sugBlackList.LocalizedDisplayName)" -sColor red
+            }
+        }
+    }
+    try{                         
+        Write-Log -iTabs 4 "Refreshing $($sugBlacklist.LocalizedDisplayName) and $($sugWhiteList.LocalizedDisplayName) info." -bConsole $true
+        $sugBlacklist=Check-SUG -SUGName $($sugBlacklist.LocalizedDisplayName)                    
+        $sugWhiteList=Check-SUG -SUGName $($sugWhiteList.LocalizedDisplayName)                    
+    }
+    catch{                    
+        Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+        $global:iExitCode = 9017
+        return $global:iExitCode    
+    }
+    Write-Log -iTabs 3 "Adding $($sugWhiteList.LocalizedDisplayName) updates to the list of `"Valid`" Updates." -bConsole $true
+    foreach ($upd in $sugWhiteList.Updates){
+        if ($MSFTUpdates.CI_ID -notcontains $upd){
+            $MSFTUpdates+=Get-CMSoftwareUpdate -id $upd -fast
+            Write-Log -itabs 4 "Added update $upd"                        
+        }
+    }
+    Write-Log -iTabs 3 "Removing $($sugBlacklist.LocalizedDisplayName) updates from the list of `"Valid`" Updates." -bConsole $true
+    foreach ($upd in $sugBlacklist.Updates){
+        if ($MSFTUpdates.CI_ID -contains $upd){
+            $MSFTUpdates = $MSFTUpdates | Where {$upd -ne $_.CI_ID}
+            Write-Log -itabs 4 "Removing update $upd"                                                
+        }
+    }
+    #endregion         
+    #region 2.3 - Making sure MSFT SUG has most recent list of Updates
     Write-Log -iTabs 2 "Refreshing $($sugMSFT.LocalizedDisplayName)"
         Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugMSFT.LocalizedDisplayName)"
         $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$sugMSFT.Updates -Notcontains $_ }
@@ -1147,95 +1216,11 @@ Function MainSub{
                 Write-Log -itabs 5 "Error removing updates from $($sugMSFT.LocalizedDisplayName)" -sColor red
             }
         }    
-    #endregion
-    #region 2.2 - Making sure Blacklist SUG has valid Updates, if deployed, except those in BlackList and including those in WhiteList
-    Write-Log -iTabs 2 "Refreshing $($sugBlackList.LocalizedDisplayName)"
-        Write-Log -iTabs 3 "Checking if all updates found $($sugBlackList.LocalizedDisplayName) are `"Valid Updates`""    
-        $updToRemove = @()
-        foreach ($blUpd in $sugBlacklist.updates){
-            $upd = Get-CMSoftwareUpdate -Id $blUpd -fast
-            if ($upd.IsExpired -or $upd.IsSuperseded){
-                $updToRemove += $upd
-            }
-            if($upd.IsSuperseded){
-                Write-Log -iTabs 4 "$($upd.LocalizedDisplayName)" -sColor Yellow
-                Write-Log -iTabs 4 "$($upd.ArticleID) was supersede! Strongly recommended to evaluate new updates and consider adding to SUG!" -sColor Yellow                
-            }
-        }
-        if ($updToRemove.count -eq 0){
-            Write-Log -itabs 4 "All Updates from $($sugBlackList.LocalizedDisplayName) were found as valid" -sColor Gray
-        }
-        else{
-            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugBlackList.LocalizedDisplayName) are no longer valid." -sColor DarkRed
-            Write-Log -itabs 5 "Removing updates from $($sugBlackList.LocalizedDisplayName)" 
-            try{
-                if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove.CI_ID -SoftwareUpdateGroupName $($sugBlackList.LocalizedDisplayName) -Force
-                }
-                Write-Log -itabs 5 "Updates removed from $($sugBlackList.LocalizedDisplayName)" -sColor Green
-                try{                         
-                    Write-Log -iTabs 4 "Refreshing $($sugBlackList.LocalizedDisplayName) info." -bConsole $true
-                    $sugBlacklist=Check-SUG -SUGName $($sugBlackList.LocalizedDisplayName)                    
-                }
-                catch{                    
-                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
-                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                    $global:iExitCode = 9017
-                    return $global:iExitCode    
-                }
-            }
-            catch{
-                Write-Log -itabs 5 "Error removing updates from $($sugBlackList.LocalizedDisplayName)" -sColor red
-            }
-        }
-    #endregion
-    #region 2.3 - Making sure Whitelist SUG has valid Updates, if deployed, except those in BlackList and including those in WhiteList
-    Write-Log -iTabs 2 "Refreshing $($sugWhiteList.LocalizedDisplayName)"
-        Write-Log -iTabs 3 "Checking if all updates found $($sugWhiteList.LocalizedDisplayName) are `"Valid Updates`""    
-        $updToRemove = @()
-        foreach ($wlUpd in $sugWhiteList.updates){
-            $upd = Get-CMSoftwareUpdate -Id $wlUpd  -fast
-            if ($upd.IsExpired -or $upd.IsSuperseded){
-                $updToRemove += $upd
-            }
-            if($upd.IsSuperseded){
-                Write-Log -iTabs 4 "$($upd.LocalizedDisplayName)" -sColor Yellow
-                Write-Log -iTabs 4 "$($upd.ArticleID) was supersede! Strongly recommended to evaluate new updates and consider adding to SUG!" -sColor Yellow                
-            }
-        }
-        if ($updToRemove.count -eq 0){
-            Write-Log -itabs 4 "All Updates from $($sugWhiteList.LocalizedDisplayName) were found as valid" -sColor Gray
-        }
-        else{
-            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($sugWhiteList.LocalizedDisplayName) are no longer valid." -sColor DarkRed
-            Write-Log -itabs 5 "Removing updates from $($sugWhiteList.LocalizedDisplayName)" 
-            try{
-                if($action -like "*Run"){
-                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove.CI_ID -SoftwareUpdateGroupName $($sugWhiteList.LocalizedDisplayName) -Force
-                }
-                Write-Log -itabs 5 "Updates removed from $($sugWhiteList.LocalizedDisplayName)" -sColor Green
-                try{                                             
-                    Write-Log -iTabs 4 "Refreshing $($sugWhiteList.LocalizedDisplayName) info." -bConsole $true
-                    $sugWhiteList=Check-SUG -SUGName $($sugWhiteList.LocalizedDisplayName)                    
-                }
-                catch{                    
-                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
-                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                    $global:iExitCode = 9018
-                    return $global:iExitCode    
-                }
-            }
-            catch{
-                Write-Log -itabs 5 "Error removing updates from $($sugWhiteList.LocalizedDisplayName)" -sColor red
-            }
-        }    
-    #endregion
+    #endregion    
     #region 2.4 - Making sure Report SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
-    Write-Log -iTabs 2 "Refreshing $($sugReport.LocalizedDisplayName)"
-        Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugReport.LocalizedDisplayName), "
-        Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
-        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$trackedUpd -contains $_ -and $sugReport.Updates -Notcontains $_ -and $sugBlackList.Updates -NotContains $_}
-        $updstoAdd += $sugWhiteList.Updates | Where-Object {$sugReport.Updates -Notcontains $_}
+        Write-Log -iTabs 2 "Refreshing $($sugReport.LocalizedDisplayName)"
+        Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($sugReport.LocalizedDisplayName)."        
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$sugReport.Updates -Notcontains $_ -and $updToBeTracked.CI_ID -contains $_}        
         if ($updstoAdd.count -eq 0){
             Write-Log -itabs 4 "All valid Updates were found in $($sugReport.LocalizedDisplayName)" -sColor Gray
         }
@@ -1263,7 +1248,7 @@ Function MainSub{
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($sugReport.LocalizedDisplayName) are also found as `"Valid Updates`"."
-        $updToRemove = $sugReport.Updates | Where-Object {$MSFTUpdates.CI_ID -notcontains $_ -and $sugWhiteList.Updates -notcontains $_ }
+        $updToRemove = $sugReport.Updates | Where-Object {$updToBeTracked -notcontains $_ }
         if ($updToRemove.count -eq 0){
             Write-Log -itabs 4 "All Updates from $($sugReport.LocalizedDisplayName) were found as valid" -sColor Gray
         }
@@ -1293,10 +1278,8 @@ Function MainSub{
     #endregion
     #region 2.5 - Making sure Missing SUG has most recent list of Updates, if not deployed, except those in BlackList and including those in WhiteList
     Write-Log -iTabs 2 "Refreshing $($sugMissing.LocalizedDisplayName)"
-        Write-Log -iTabs 3 "Checking if all updates `"Valid Updates`" and not deployed are found in $($sugReport.LocalizedDisplayName), "
-        Write-Log -iTabs 3 "excluding updates from $($sugBlackList.LocalizedDisplayName) and including updates from $($sugWhiteList.LocalizedDisplayName)"
-        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$trackedUpd -notcontains $_ -and $sugBlackList.Updates -notcontains $_ -and $sugMissing.Updates -notcontains $_}
-        $updstoAdd += $sugWhiteList.Updates  | Where-Object {$sugMissing.Updates -notcontains $_ -and $sugReport.Updates -contains $_}
+        Write-Log -iTabs 3 "Checking if all updates valid not deployed updates are found in $($sugMissing.LocalizedDisplayName), "        
+        $updstoAdd = $MSFTUpdates.CI_ID | Where-Object {$sugReport.Updates -notcontains $_ -and $sugMissing.Updates -notcontains $_}        
         if ($updstoAdd.count -eq 0){
             Write-Log -itabs 4 "All valid not deployed updates were found in $($sugMissing.LocalizedDisplayName)" -sColor Gray
         }
@@ -1324,7 +1307,7 @@ Function MainSub{
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($sugMissing.LocalizedDisplayName) are also found as `"Valid Updates`" and not deployed."
-        $updToRemove = $sugMissing.Updates | Where-Object { $MSFTUpdates.CI_ID -notcontains $_ -or $sugBlacklist.Updates -contains $_ }
+        $updToRemove = $sugMissing.Updates | Where-Object { $sugReport.Updates -contains $_ -or $sugMSFT.Updates -notcontains $_ }
         if ($updToRemove.count -eq 0){
             Write-Log -itabs 4 "All Updates from $($sugMissing.LocalizedDisplayName) were found as valid" -sColor Gray
         }
@@ -1365,7 +1348,7 @@ Function MainSub{
     Write-Log -iTabs 2 "3.1 Comparing results:" -bConsole $true -sColor cyan    
     Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
     Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true
-    Write-Log -itabs 3 "$($trackedUpd.Count) Updates to be tracked from deployed updates." -bConsole $true
+    Write-Log -itabs 3 "$($updToBeTracked.Count) Updates to be tracked from deployed updates." -bConsole $true
     Write-Log -itabs 3
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
     Write-Log -iTabs 4 "$($sugMSFT.LocalizedDisplayName) -> SUG containing all valid updates, matching defined criteria for tracking"
