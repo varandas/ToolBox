@@ -306,8 +306,7 @@ function Check-SUG(){
 # Returns: None
 # --------------------------------------------------------------------------------------------
     param( 
-        [Parameter(Mandatory = $true)][string]$SUGName,
-        [boolean]$FullDetail=$false
+        [Parameter(Mandatory = $true)][string]$SUGName
     )
     #Check if SUG Exists
     try{
@@ -352,18 +351,8 @@ function Check-SUG(){
             }            
         } 
     }    
-    elseif($FullDetail){
-       return $sug.Updates
-    }
     else{
-        $i=1
-        $tempUpdArray =@()                                     
-        foreach ($upd in $sug.Updates){
-            Write-Progress -Activity "$i/$($sug.Updates.count) - Loading $upd" -PercentComplete ($i/$sug.Updates.count*100)
-            $tempUpdArray+=Get-CMSoftwareUpdate -fast -Id $upd
-            $i++
-        }
-        return $tempUpdArray                 
+       return $sug.Updates
     }    
 }
 Function Find-Product {
@@ -931,7 +920,7 @@ function Get-UpdFromADR {
             }
         }    
     }
-    $upd = Get-CMSoftwareUpdate -fast
+    $upd = Get-CMSoftwareUpdate -fast | Select IsSuperseded,ArticleID,BulletinID,CustomSeverity,LocalizedDescription,UpdateLocales,Severity,CMTag,CategoryInstance_UniqueIDs,LocalizedDisplayName,CI_ID
     Write-Verbose "$($upd.count) retrieved from SCCM WMI"    
     $upd = $upd | Where {$_.IsSuperseded -eq $supersede}
     Write-Verbose "$($upd.count) after applying Supersede filter"
@@ -1006,7 +995,8 @@ function Get-UpdFromADR {
         #Write-Verbose "    Remaining updates after Classification and product query: $($tempUpArray.count)"
         $upd = $tempUpArray
         Write-Verbose "$($upd.count) after applying Classification and Product equal filter"
-        $tempUpArray=@()
+    }
+    $tempUpArray=@()
     if ($displayNameNE.count -ne 0){
         foreach ($up in $upd){
             $upvalid=$true
@@ -1041,10 +1031,36 @@ function Get-UpdFromADR {
         }
         $upd = $tempUpArray         
         Write-Verbose "$($upd.count) after applying Description equal filter"
-    }
-    }    
-    return $upd
+    }        
+    return $upd.CI_ID
 }
+function Renew-SUG {
+    param(
+        [string]$SUGName,
+        $UpdArray,
+        [int]$ArrayLimit=900,
+        [ValidateSet("Add","Remove")][string]$act
+    )
+    #If array is greater than limit, split it
+    $UpdArray = Split-Array -array $UpdArray -size $ArrayLimit
+    try{
+        if ($act -eq "Add"){
+            foreach ($uArray in $UpdArray){
+                Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $UpdArray -SoftwareUpdateGroupName $SUGName
+            }
+        }
+        elseif($act -eq "Remove"){
+            foreach ($uArray in $UpdArray){
+                Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $UpdArray -SoftwareUpdateGroupName $SUGName
+            }
+        }
+        return $true
+    }
+    catch{
+        return $false
+    }
+}
+
 #endregion
 # --------------------------------------------------------------------------------------------
 #region VARIABLES
@@ -1070,6 +1086,7 @@ function Get-UpdFromADR {
     # ****************************************************
     # Script Specific Variables
     $timeReport = 30 # Defines how long before an update is considered within Report Groups
+    $maxArraySizeSUGchange = 900
     
     switch ($Scope){
         #IF CAS
@@ -1223,8 +1240,7 @@ Function MainSub{
             }
         }
         # Testing SCCM Drive
-        try{
-            $originalLocation = Get-Location
+        try{            
             Write-Log -iTabs 3 "Connecting to SCCM PS Location at $($SCCMSite):\" -bConsole $true -bTxtLog $false        
             Set-Location $SCCMSite":"            
             Write-Log -iTabs 4 "Connected to SCCM PS Location at $($SCCMSite):\" -bConsole $true -sColor Green      
@@ -1240,10 +1256,7 @@ Function MainSub{
         Write-Log -iTabs 4 "SCCM Scope:                  $Scope" -bConsole $true -sColor Yellow        
         Write-Log -iTabs 4 "SMSProvider:                 $SMSProvider" -bConsole $true                
         Write-Log -iTabs 4 "SCCM Site Code:              $SCCMSite" -bConsole $true                 
-        Write-Log -iTabs 4 "Update Age to be Reported:   $timeReport" -bConsole $true
-        Write-Log -iTabs 4 "Severity:                    $severity" -bConsole $true
-        Write-Log -iTabs 4 "Products to be Considered:   $updateProducts" -bConsole $true
-        Write-Log -iTabs 4 "Classifications:             $updateClassification" -bConsole $true
+        Write-Log -iTabs 4 "Update Age to be Reported:   $timeReport" -bConsole $true        
 
     #endregion  
     #region 1.2 Is this SCCM Admin User?            
@@ -1294,8 +1307,7 @@ Function MainSub{
                 }
             #endregion
             #region Checking SUGs           
-                Write-Log -iTabs 3 "Checking if SUGs are present." -bConsole $true
-                #region Gettings SUG Info
+                Write-Log -iTabs 3 "Checking if SUGs are present." -bConsole $true                
                 try{                         
                     Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-MSFT")." -bConsole $true
                     $sugMSFTCIs=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")
@@ -1317,14 +1329,13 @@ Function MainSub{
                     Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
                     $global:iExitCode = 9014
                     return $global:iExitCode    
-                }
-                #endregion
+                }                
             #endregion         
             #region Query all valid MSFT Updates            
             Write-Log -iTabs 3 "Query all updates from $($TemplateName)ADR, ignoring DatePosted criteria." -bConsole $true
             try{
                 #get all updates not expired, not superseded above severity trehshold, older than date                
-                $MSFTUpdates=Get-UpdFromADR -ADRName $($($TemplateName)+"ADR")
+                $MSFTUpdatesCIs=Get-UpdFromADR -ADRName $($($TemplateName)+"ADR")
                 #from all updates, get retain those from the selected products, classification, add whitelist updates and remove blacklist update                               
                  Write-Log -iTabs 4 "Found $($MSFTUpdates.Count) updates as valid." -bConsole $true                
             }
@@ -1349,31 +1360,31 @@ Function MainSub{
                 return $global:iExitCode
             }                  
             #from each sug, get all CI_IDs
-            $deployedUpdates =@()
+            $deployedUpdatesCIs =@()
             foreach ($sug in $sugs){
-                $deployedUpdates+=$sug.Updates                
+                $deployedUpdatesCIs+=$sug.Updates                
             }            
-            Write-Log -iTabs 4 "$($deployedUpdates.Count) updates found as currently deployed." -bConsole $true                        
+            Write-Log -iTabs 4 "$($deployedUpdatesCIs.Count) updates found as currently deployed." -bConsole $true                        
             #endregion
     #endregion    
     #region 1.4 Finalizing Pre-Checks      
     Write-Log -iTabs 2 "1.4 - Finalizing Pre-Checks:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
-    Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true    
+    Write-Log -itabs 3 "$($MSFTUpdatesCIs.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdatesCIs.Count) Updates found Deployed." -bConsole $true    
     Write-Log -itabs 3
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-MSFT") -> SUG containing all valid updates, matching defined criteria for tracking"
-                        $initSugMsftUpd = $sugMSFT.Count
+                        $initSugMsftUpd = $sugMSFTCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Blacklist") -> SUG containing all forbidden updates"
-                        $initSugBlacklistUpd = $sugBlacklist.Count
+                        $initSugBlacklistUpd = $sugBlacklistCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Whitelist") -> SUG containing all must-have updates"
-                        $initSugWhiteListUpd = $sugWhiteList.Count
+                        $initSugWhiteListUpd = $sugWhiteListCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Compliance") -> SUG containing all deployed updates, matching defined criteria for tracking"
-                        $initSugReportUpd = $sugReport.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd"
+                        $initSugComplianceUpd = $sugComplianceCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugComplianceUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Missing") -> SUG containing all valid updates, not found deployed. target to have zero updates"
                         $initSugMissingUpd = $sugMissing.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
@@ -1389,12 +1400,9 @@ Function MainSub{
     #region 2.1 - Making sure Blacklist and Whitelist SUG has valid Updates
     Write-Log -itabs 2 "Making sure Blacklist and Whitelist SUG have valid Updates"
     Write-Log -itabs 3 "Loading Updates from $($TemplateName+"Rpt-Whitelist")"    
+    $updToRemove=@()
     foreach ($tempUpd in $sugWhiteListCIs){        
-        $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast
-        if ($tempUpd.IsExpired -or ($tempUpd.IsSuperseded -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport))){
-            Write-Log -iTabs 5 "$tempUpd flagged for removal from $($TemplateName+"Rpt-Whitelist")"
-            $updToRemove += $tempUpd
-        }
+        $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast | Select IsSuperseded,DatePosted,IsExpired,ArticleID,LocalizedDisplayName,CI_ID        
         if($tempUpd.IsSuperseded -and $tempUpd.DatePosted -ge $(Get-Date).AddDays(-$timeReport)){                
             Write-Log -iTabs 4 "$($tempUpd.ArticleID) was supersede!" -sColor Yellow                
             Write-Log -iTabs 4 "$($tempUpd.ArticleID) will not be removed at this moment since is newer than TimeToReport threshold ($timeReport days old)" -sColor Yellow                
@@ -1405,6 +1413,10 @@ Function MainSub{
             Write-Log -iTabs 4 "$($tempUpd.ArticleID) is deployed and is part of Blacklist SUG!" -sColor Red
             Write-Log -iTabs 5 "Go to SCCM console and review Update deployments."
             Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+        }
+        if ($tempUpd.IsExpired -or ($tempUpd.IsSuperseded -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport))){
+            Write-Log -iTabs 5 "$tempUpd flagged for removal from $($TemplateName+"Rpt-Whitelist")"
+            $updToRemove += $tempUpd.CI_ID
         }        
     }
     if ($updToRemove.count -eq 0){
@@ -1414,20 +1426,24 @@ Function MainSub{
         Write-Log -itabs 5 "Removing updates from SUG" 
         try{                    
             if($action -like "*Run"){
-                Renew-SUG -SUGName $($TemplateName+"Rpt-Whitelist") -UpdArray $updToRemove -ArrayLimit 900 -Action Remove                    
-            }                                     
+                Renew-SUG -SUGName $($TemplateName+"Rpt-Whitelist") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Action Remove                    
+            }
+            Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Whitelist") info." -bConsole $true
+            $sugWhiteListCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Whitelist")
+                                                 
         }
         catch{
             Write-Log -itabs 5 "Error removing updates" -sColor red
         }            
     }        
     Write-Log -itabs 3 "$($TemplateName+"Rpt-Whitelist") Review is Complete"
+
     Write-Log -itabs 3 "Loading Updates from $($TemplateName+"Rpt-Blacklist")"    
     foreach ($tempUpd in $sugBlacklistCIs){        
         $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast
         if ($tempUpd.IsExpired -or ($tempUpd.IsSuperseded -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport))){
             Write-Log -iTabs 5 "$tempUpd flagged for removal from $($TemplateName+"Rpt-Blacklist")"
-            $updToRemove += $tempUpd
+            $updToRemove += $tempUpd.CI_ID
         }
         if($tempUpd.IsSuperseded -and $tempUpd.DatePosted -ge $(Get-Date).AddDays(-$timeReport)){                
             Write-Log -iTabs 4 "$($tempUpd.ArticleID) was supersede!" -sColor Yellow                
@@ -1448,8 +1464,10 @@ Function MainSub{
         Write-Log -itabs 5 "Removing updates from SUG" 
         try{                    
             if($action -like "*Run"){
-                Renew-SUG -SUGName $($TemplateName+"Rpt-Blacklist") -UpdArray $updToRemove -ArrayLimit 900 -Action Remove                    
-            }                                     
+                Renew-SUG -SUGName $($TemplateName+"Rpt-Blacklist") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Action Remove                    
+            }                      
+            Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Blacklist") info." -bConsole $true
+            $sugBlacklistCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Blacklist")               
         }
         catch{
             Write-Log -itabs 5 "Error removing updates" -sColor red
@@ -1458,81 +1476,75 @@ Function MainSub{
     Write-Log -itabs 3 "$($TemplateName+"Rpt-Blacklist") Review is Complete"
     #endregion
     #region 2.2 - Updating $MSFTUpds with Whitelist and BlackList entries
-    Write-Log -iTabs 3 "Adding $($TemplateName+"Rpt-Whitelist") updates to the list of `"Valid`" Updates." -bConsole $true
-    $sugWhiteList = Check-SUG -SUGName $($TemplateName+"Rpt-Whitelist") -FullDetail $true
-    $MSFTUpdates += $sugWhiteList | Where {$MSFTUpdates.CI_ID -notcontains $_.CI_ID}
+    Write-Log -iTabs 3 "Adding $($TemplateName+"Rpt-Whitelist") updates to the list of `"Valid`" Updates." -bConsole $true    
+    $MSFTUpdatesCIs += $sugWhiteListCIs | Where {$MSFTUpdatesCIs -notcontains $_}
 
     Write-Log -iTabs 3 "Removing $($TemplateName+"Rpt-Blacklist") updates from the list of `"Valid`" Updates." -bConsole $true    
-    $MSFTUpdates = $MSFTUpdates | Where {$sugBlacklistCIs -notcontains $_.CI_ID}    
-    #endregion         
+    $MSFTUpdates = $MSFTUpdates | Where {$sugBlacklistCIs -notcontains $_}    
+    #endregion     
+        
     #region 2.3 - Making sure MSFT SUG has most recent list of Updates
     Write-Log -iTabs 2 "Refreshing $($TemplateName+"Rpt-MSFT")"
     
     Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($TemplateName+"Rpt-MSFT")"
-    $updstoAdd = ($MSFTUpdates | Where-Object {$sugMSFT.CI_ID -Notcontains $_.CI_ID }).CI_ID
+    $updstoAdd = $MSFTUpdatesCIs | Where-Object {$sugMSFTCIs -Notcontains $_}
     if ($updstoAdd.count -eq 0){
         Write-Log -itabs 4 "All valid Updates were found in $($TemplateName+"Rpt-MSFT")" -sColor Gray
     }
-        else{
-            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-MSFT")" -sColor Yellow            
-            try{
-                if($action -like "*Run"){
-                    $split = Split-Array -array $updstoAdd -size 900    
-                    foreach ($sp in $split){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $sp -SoftwareUpdateGroupName $($TemplateName+"Rpt-MSFT")
-                    }
-                }
-                Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-MSFT")" -sColor Green
-                try{                         
-                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
-                    $sugMSFT=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
-                }
-                catch{                    
-                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
-                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                    $global:iExitCode = 9015
-                    return $global:iExitCode    
-                }
+    else{
+        Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-MSFT")" -sColor Yellow            
+        try{
+            if($action -like "*Run"){
+                Renew-SUG -SUGName $($TemplateName+"Rpt-MSFT") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
             }
-            catch{
-                Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-MSFT")" -sColor red
+            Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-MSFT")" -sColor Green
+            try{                         
+                Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
+                $sugMSFT=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
             }
-        }    
-        Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-MSFT") are also found as `"Valid Updates`"."
-        $updToRemove = ($sugMSFT | Where-Object {$MSFTUpdates.CI_ID -NotContains $_ }).CI_ID
-        if ($updToRemove.count -eq 0){
-            Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-MSFT") were found as valid" -sColor Gray
+            catch{                    
+                Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9015
+                return $global:iExitCode    
+            }
         }
-        else{
-            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-MSFT") are no longer valid." -sColor yellow            
-            try{
-                if($action -like "*Run"){
-                    $split = Split-Array -array $updToRemove -size 900    
-                    foreach ($sp in $split){
-                        Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $updToRemove -SoftwareUpdateGroupName $($TemplateName+"Rpt-MSFT") -Force
-                    }
-                }
-                Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-MSFT")" -sColor Green
-                try{                         
-                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
-                    $sugMSFT=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
-                }
-                catch{                    
-                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
-                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                    $global:iExitCode = 9016
-                    return $global:iExitCode    
-                }
+        catch{
+            Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-MSFT")" -sColor red
+        }
+    }    
+    Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-MSFT") are also found as `"Valid Updates`"."
+    $updToRemove = $sugMSFTCIs | Where-Object {$MSFTUpdatesCIs -NotContains $_ }
+    if ($updToRemove.count -eq 0){
+        Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-MSFT") were found as valid" -sColor Gray
+    }
+    else{
+        Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-MSFT") are no longer valid." -sColor yellow            
+        try{
+            if($action -like "*Run"){
+                Renew-SUG -SUGName $($TemplateName+"Rpt-MSFT") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Action Remove                    
+            } 
+            Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-MSFT")" -sColor Green
+            try{                         
+                Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
+                $sugMSFT=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
             }
-            catch{
-                Write-Log -itabs 5 "Error removing updates from $($TemplateName+"Rpt-MSFT")" -sColor red
+            catch{                    
+                Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9016
+                return $global:iExitCode    
             }
-        }    
+        }
+        catch{
+            Write-Log -itabs 5 "Error removing updates from $($TemplateName+"Rpt-MSFT")" -sColor red
+        }
+    }    
     #endregion    
     #region 2.4 - Making sure Compliance SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
         Write-Log -iTabs 2 "Refreshing $($TemplateName+"Rpt-Compliance")"
         Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($TemplateName+"Rpt-MSFT")."        
-        $updstoAdd = ($sugMSFT | Where-Object {$sugReport.Updates -Notcontains $_ -and $deployedUpdates -contains $_.CI_ID}).CI_ID        
+        $updstoAdd = $sugMSFTCIs | Where-Object {$sugComplianceCIs -Notcontains $_ -and $deployedUpdatesCIs -contains $_}
         if ($updstoAdd.count -eq 0){
             Write-Log -itabs 4 "All valid Updates were found in $($TemplateName+"Rpt-Compliance")" -sColor Gray
         }
@@ -1540,10 +1552,7 @@ Function MainSub{
             Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-Compliance")" -sColor Yellow            
             try{
                 if($action -like "*Run"){
-                    $split = Split-Array -array $updToAdd -size 900    
-                    foreach ($sp in $split){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $sp -SoftwareUpdateGroupName $($TemplateName+"Rpt-Compliance")
-                    }
+                    Renew-SUG -SUGName $($TemplateName+"Rpt-Compliance") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
                 }
                 Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-Compliance")" -sColor Green
                 try{                                             
@@ -1569,11 +1578,8 @@ Function MainSub{
         else{
             Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-Compliance") are no longer valid." -sColor Yello            
             try{
-                if($action -like "*Run"){
-                    $split = Split-Array -array $updToRemove -size 900    
-                    foreach ($sp in $split){
-                        Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $sp -SoftwareUpdateGroupName $($TemplateName+"Rpt-Compliance") -Force
-                    }
+                 if($action -like "*Run"){
+                    Renew-SUG -SUGName $($TemplateName+"Rpt-Compliance") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Action Remove                    
                 }
                 Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-Compliance")" -sColor Green
                 try{                                             
@@ -1603,10 +1609,7 @@ Function MainSub{
             Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-Missing")" -sColor Yellow            
             try{
                 if($action -like "*Run"){
-                    $split = Split-Array -array $updToAdd -size 900    
-                    foreach ($sp in $split){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $sp -SoftwareUpdateGroupName $($TemplateName+"Rpt-Missing")
-                    }
+                    Renew-SUG -SUGName $($TemplateName+"Rpt-Missing") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
                 }
                 Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-Missing")" -sColor Green
                 try{                                             
@@ -1634,10 +1637,7 @@ Function MainSub{
             Write-Log -itabs 5 "Removing updates from $($TemplateName+"Rpt-Missing")" 
             try{
                 if($action -like "*Run"){
-                    $split = Split-Array -array $updToRemove -size 900    
-                    foreach ($sp in $split){                        
-                        Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $sp -SoftwareUpdateGroupName $($TemplateName+"Rpt-Missing") -Force
-                    }
+                    Renew-SUG -SUGName $($TemplateName+"Rpt-Missing") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Action Remove                    
                 }
                 Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-Missing")" -sColor Green
                 try{                                             
@@ -1667,29 +1667,28 @@ Function MainSub{
     Write-Log -iTabs 1 "Starting 3 - Post-Checks." -bConsole $true -sColor cyan
     #region 3.1 Comparing results      
     Write-Log -iTabs 2 "3.1 Comparing results:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "$($MSFTUpdates.Count) valid updates found in SCCM WMI." -bConsole $true    
-    Write-Log -itabs 3 "$($deployedUpdates.Count) Updates found Deployed." -bConsole $true
-    Write-Log -itabs 3 "$($updToBeTracked.Count) Updates to be tracked from deployed updates." -bConsole $true
+    Write-Log -itabs 3 "$($MSFTUpdatesCIs.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdatesCIs.Count) Updates found Deployed." -bConsole $true    
     Write-Log -itabs 3
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-MSFT") -> SUG containing all valid updates, matching defined criteria for tracking"
-                        $finalSugMsftUpd = $sugMSFT.Updates.Count
+                        $finalSugMsftUpd = $sugMSFTCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd" -sColor Gray
     Write-Log -iTabs 5 "Final   # of Updates: $finalSugMsftUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Blacklist") -> SUG containing all forbidden updates"
-                        $finalSugBlacklistUpd = $sugBlacklist.Updates.Count
+                        $finalSugBlacklistUpd = $sugBlacklistCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd" -sColor Gray
     Write-Log -iTabs 5 "Final   # of Updates: $finalSugBlacklistUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-WhiteList") -> SUG containing all must-have updates"
-                        $finalSugWhiteListUpd = $sugWhiteList.Updates.Count
+                        $finalSugWhiteListUpd = $sugWhiteListCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd" -sColor Gray
     Write-Log -iTabs 5 "Final   # of Updates: $finalSugWhiteListUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Compliance") -> SUG containing all deployed updates, matching defined criteria for tracking"
-                        $finalSugReportUpd = $sugReport.Updates.Count
+                        $finalSugReportUpd = $sugComplianceCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd" -sColor Gray
     Write-Log -iTabs 5 "Final   # of Updates: $finalSugReportUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Missing") -> SUG containing all valid updates, not found deployed. target to have zero updates"
-                        $finalSugMissingUpd = $sugMissing.Updates.Count
+                        $finalSugMissingUpd = $sugMissingCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd" -sColor Gray
     Write-Log -iTabs 5 "Final   # of Updates: $finalSugMissingUpd"    
     Write-Log -itabs 3
@@ -1709,6 +1708,7 @@ Function MainSub{
 #region MAIN_PROCESSING
 
 # Starting log
+$global:original = Get-Location
 Start-Log
 
 Try {
@@ -1723,6 +1723,7 @@ Catch {
 }
 # Stopping the log
 Finish-Log
+Set-Location $global:original
 
 # Quiting with exit code
 Exit $global:iExitCode
