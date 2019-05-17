@@ -1633,7 +1633,7 @@ Function MainSub{
                 }
             }
             catch{
-                Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-Missing")" -sColor red
+                Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-Missing")" -sColor yellow
             }
         }    
         Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-Missing") are also found as `"Valid Updates`" and not deployed."
@@ -1642,7 +1642,7 @@ Function MainSub{
             Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-Missing") were found as valid" -sColor Gray
         }
         else{
-            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-Missing") are no longer valid." -sColor DarkRed
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-Missing") are no longer valid." -sColor yellow
             Write-Log -itabs 5 "Removing updates from $($TemplateName+"Rpt-Missing")" 
             try{
                 if($action -like "*Run"){
