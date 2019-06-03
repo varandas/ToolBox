@@ -1109,9 +1109,7 @@ function Renew-SUG {
             $SMSProvider = "sccm01.zlab.varandas.com"            
             $SCCMSite = "CAS"            
             $TemplateName = "WKS-SecurityUpdates-"                
-            $timeReport = 45     
-            $severity = 8
-         
+            $timeReport = 45                 
         }          
         #IF VAR
         "VAR"{
@@ -1402,7 +1400,32 @@ Function MainSub{
     Write-Log -iTabs 5 "Initial # of Updates: $initSugComplianceUpd"
     Write-Log -iTabs 4 "$($TemplateName+"Rpt-Missing") -> SUG containing all valid updates, not found deployed. target to have zero updates"
                         $initSugMissingUpd = $sugMissingCIs.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"   
+    Write-Log 
+    Write-Log -itabs 2 "Pre-Checks are complete. Script will make environment changes in the next interaction." -bConsole $true
+    Write-Log -itabs 2 "Getting User confirmation to proceed"
+    do{        
+        if ($action -eq "Check"){
+            Write-Log -iTabs 3 "Script would make environment changes in the next interaction but Action Check was identified. Script will log but not execute actions." -bConsole $true        
+        }
+        else{
+            Write-Log -iTabs 3 "Script will make environment changes in the next interaction" -bConsole $true -scolor Yellow        
+        }
+        if($action -like "*run"){
+            $answer = "Y"
+        }
+        else{
+            $answer = Read-Host "                                  |Do you want to proceed? [Y/n]"     
+        }   
+    } while (($answer -ne "Y") -and ($answer -ne "n"))
+    if ($answer -eq "n"){
+        Write-Log -iTabs 3 "User Aborting script." -bConsole $true -sColor red
+        $global:iExitCode = 8001
+        return $global:iExitCode
+    }
+    else{
+        Write-Log -iTabs 2 "User confirmation received." 
+    } 
     #endregion
     Write-Log -iTabs 1 "Completed 1 - Pre-Checks." -bConsole $true -sColor Cyan    
     Write-Log -iTabs 0 -bConsole $true
