@@ -132,6 +132,8 @@ Function How-ToScript(){
             9011 - Error while processing new SUG
             9012 - Error while processing stable SUG
             9013 - Error while processing aged SUG
+            9014~21 - Error while checking/Creating SUG
+            9022 - Blacklist Update found deployed
             9999 - Unhandled Exception     
 
    
@@ -217,8 +219,7 @@ Function Write-Log(){
         [boolean]$bConsole=$true,
         [string]$sColor="white",         
         [boolean]$bEventLog=$false,        
-        [int]$iEventID=0,
-        [ValidateSet("Error","Information","Warning")][string]$sEventLogType="Information",
+        [int]$iEventID=0,        
         [string]$sSource=$sEventIDSource        
     )
     
@@ -288,210 +289,77 @@ function ConvertTo-Array{
         return ,$output;   
     }
 }
+function Split-Array ([object[]]$array,[int]$size){
+    $Length = $array.Length
+    for ($index=0;$index -lt $Length; $index += $size){        
+        ,($array[$index..($index+$size-1)])
+    }
+}
 #endregion
 # --------------------------------------------------------------------------------------------
-
-#region VARIABLES
-# Standard Variables
-    # *****  Change Logging Path and File Name Here  *****    
-    $sOutFileName	= "Renew-ReportSUGs.log" # Log File Name    
-    $sEventSource   = "ToolBox" # Event Source Name
-    # ****************************************************
-    $sScriptName 	= $MyInvocation.MyCommand
-    $sScriptPath 	= Split-Path -Parent $MyInvocation.MyCommand.Path
-    $sLogRoot		= Get-ChildItem -Path HKLM:\SOFTWARE\Microsoft\SMS\Tracing\
-    $sLogRoot       = $sLogRoot[0].GetValue('Tracefilename')
-    $sLogRoot       = $sLogRoot.Substring(0,$SLogRoot.LastIndexOf('\')+1)    
-    $sOutFilePath   = $sLogRoot
-    $sLogFile		= Join-Path -Path $SLogRoot -ChildPath $sOutFileName
-    $global:iExitCode = 0
-    $sUserName		= $env:username
-    $sUserDomain	= $env:userdomain
-    $sMachineName	= $env:computername
-    $sCMDArgs		= $MyInvocation.Line
-    $bAllow64bitRelaunch = $true
-    $iLogFileSize 	= 1048576
-    # ****************************************************
-    # Script Specific Variables
-    $timeReport = 30 # Defines how long before an update is considered within Report Groups
-    
-    switch ($Scope){
-        #IF CAS
-        "CAS"{
-            $SMSProvider = "sccm01.zlab.varandas.com"            
-            $SCCMSite = "CAS"            
-            $TemplateName = "WKS-SecurityUpdates-"                
-            $timeReport = 45     
-            $severity = 8
-            $updateProducts = {
-                'fa5ef799-b817-439e-abf7-c76ba0cacb75', #ASP.NET Web Frameworks
-                '83aed513-c42d-4f94-b4dc-f2670973902d', #CAPICOM
-                '0bbd2260-7478-4553-a791-21ab88e437d2', #Device Health
-                '5e870422-bd8f-4fd2-96d3-9c5d9aafda22', #Microsoft Lync 2010
-                'e9ece729-676d-4b57-b4d1-7e0ab0589707', #Microsoft SQL Server 2008 R2 - PowerPivot for Microsoft Excel 2010
-                '56750722-19b4-4449-a547-5b68f19eee38', #Microsoft SQL Server 2012
-                'caab596c-64f2-4aa9-bbe3-784c6e2ccf9c', #Microsoft SQL Server 2014
-                '93f0b0bc-9c20-4ca5-b630-06eb4706a447', #Microsoft SQL Server 2016
-                'ca6616aa-6310-4c2d-a6bf-cae700b85e86', #Microsoft SQL Server 2017
-                'dee854fd-e9d2-43fd-bbc3-f7568e3ce324', #Microsoft SQL Server Management Studio v17
-                '6b9e8b26-8f50-44b9-94c6-7846084383ec', #MS Security Essentials
-                '6248b8b1-ffeb-dbd9-887a-2acf53b09dfe', #Office 2002/XP
-                '1403f223-a63f-f572-82ba-c92391218055', #Office 2003
-                '041e4f9f-3a3d-4f58-8b2f-5e6fe95c4591', #Office 2007
-                '84f5f325-30d7-41c4-81d1-87a0e6535b66', #Office 2010
-                '704a0a4a-518f-4d69-9e03-10ba44198bd5', #Office 2013
-                '25aed893-7c2d-4a31-ae22-28ff8ac150ed', #Office 2016
-                '6c5f2e66-7dbc-4c59-90a7-849c4c649d7a', #Office 2019
-                '30eb551c-6288-4716-9a78-f300ec36d72b', #Office 365 Client
-                '8bc19572-a4b6-4910-b70d-716fecffc1eb', #Office Communicator 2007 R2
-                '7cf56bdd-5b4e-4c04-a6a6-706a2199eff7', #Report Viewer 2005
-                '79adaa30-d83b-4d9c-8afd-e099cf34855f', #Report Viewer 2008
-                'f7f096c9-9293-422d-9be8-9f6e90c2e096', #Report Viewer 2010
-                '6cf036b9-b546-4694-885a-938b93216b66', #Security Essentials
-                '9f3dd20a-1004-470e-ba65-3dc62d982958', #Silverlight
-                '7145181b-9556-4b11-b659-0162fa9df11f', #SQL Server 2000
-                '60916385-7546-4e9b-836e-79d65e517bab', #SQL Server 2005
-                'c5f0b23c-e990-4b71-9808-718d353f533a', #SQL Server 2008
-                'bb7bc3a7-857b-49d4-8879-b639cf5e8c3c', #SQL Server 2008 R2
-                '7fe4630a-0330-4b01-a5e6-a77c7ad34eb0', #SQL Server 2012 Product Updates for Setup
-                '892c0584-8b03-428f-9a74-224fcd6887c0', #SQL Server 2014-2016 Product Updates for Setup
-                'c96c35fc-a21f-481b-917c-10c4f64792cb', #SQL Server Feature Pack
-                'bf05abfb-6388-4908-824e-01565b05e43a', #System Center 2012 - Operations Manager
-                'ab8df9b9-8bff-4999-aee5-6e4054ead976', #System Center 2012 - Orchestrator
-                '2a9170d5-3434-4820-885c-61a4f3fc6f84', #System Center 2012 R2 - Operations Manager
-                '6ddf2e90-4b40-471c-a664-6cd6b7e0d0a7', #System Center 2012 R2 - Orchestrator
-                'cc4ab3ac-9d9a-4f53-97d3-e0d6de39d119', #System Center 2016 - Operations Manager
-                'e505a854-6941-484f-a107-ebf0d1b64820', #System Center 2016 - Orchestrator
-                'cd8d80fe-5b55-48f1-b37a-96535dca6ae7', #TMG Firewall Client
-                'a0dd7e72-90ec-41e3-b370-c86a245cd44f', #Visual Studio 2005
-                'e3fde9f8-14d6-4b5c-911c-fba9e0fc9887', #Visual Studio 2008
-                'c9834186-a976-472b-8384-6bb8f2aa43d9', #Visual Studio 2010
-                'cbfd1e71-9d9e-457e-a8c5-500c47cfe9f3', #Visual Studio 2010 Tools for Office Runtime
-                'e1c753f2-9f79-4577-b75b-913f4230feee', #Visual Studio 2010 Tools for Office Runtime
-                'abddd523-04f4-4f8e-b76f-a6c84286cc67', #Visual Studio 2012
-                'cf4aa0fc-119d-4408-bcba-181abb69ed33', #Visual Studio 2013
-                '1731f839-8830-4b9c-986e-82ee30b24120', #Visual Studio 2015
-                'a3c2375d-0c8a-42f9-bce0-28333e198407', #Windows 10
-                'bfe5b177-a086-47a0-b102-097e4fa1f807', #Windows 7
-                '6407468e-edc7-4ecd-8c32-521f64cee65e', #Windows 8.1
-                'b1b8f641-1ff2-4ae6-b247-4fe7503787be', #Windows Admin Center
-                '8c3fcc84-7410-4a95-8b89-a166a0190486', #Windows Defender
-                '50c04525-9b15-4f7c-bed4-87455bcd7ded', #Windows Dictionary Updates
-                'ba0ae9cc-5f01-40b4-ac3f-50192b5d6aaf', #Windows Server 2008
-                'fdfe8200-9d98-44ba-a12a-772282bf60ef', #Windows Server 2008 R2
-                'd31bd4c3-d872-41c9-a2e7-231f372588cb', #Windows Server 2012 R2
-                '569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5', #Windows Server 2016                
-                'f702a48c-919b-45d6-9aef-ca4248d50397', #Windows Server 2019
-                '4e487029-f550-4c22-8b31-9173f3f95786', #Windows Server Manager – Windows Server Update Services (WSUS) Dynamic Installer               
-                '26997d30-08ce-4f25-b2de-699c36a8033a' #Windows Vista
+#region SCRIPT FUNCTIONS
+function Check-SUG(){
+# --------------------------------------------------------------------------------------------
+# Function Check-SUG
+# Purpose: Checks to see if a SUG is found and if not, guide user through creation process
+# Parameters: SUG Name
+# Returns: None
+# --------------------------------------------------------------------------------------------
+    param( 
+        [Parameter(Mandatory = $true)][string]$SUGName
+    )
+    #Check if SUG Exists
+    try{
+        $sug = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -eq $SUGName}
+    }
+    catch{                                                                        
+        Write-Log -iTabs 4 "Unable to query Software Update Groups. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red                        
+        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+        $global:iExitCode = 9005
+        return $global:iExitCode
+    }      
+    #sug not was found
+    if ($sug.Count -ne 1){   
+        Write-Log -iTabs 4 "$SUGName wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
+        do{
+            if($action -eq "Auto-Run"){$answer = "Y"}
+            else{
+                $answer = Read-Host "                                      Do you want to create Software Update Group '$SUGName'? [Y/n] "                
             }
-            $updateClassification = '0fa1201d-4330-4fa8-8ae9-b877473b6441' #Security Updates   
-        }          
-        #IF VAR
-        "VAR"{
-            $SMSProvider = "sccm01.vlab.varandas.com"
-            $SCCMSite = "VAR"
-            $TemplateName = "VAR-"                        
-            $timeReport = 15
-            $severity = 8
-            $updateProducts = @(                
-                [pscustomobject]@{"ProductID"="ca6616aa-6310-4c2d-a6bf-cae700b85e86";"ProductName"=" Microsoft SQL Server 2017"}
-                [pscustomobject]@{"ProductID"="dee854fd-e9d2-43fd-bbc3-f7568e3ce324";"ProductName"=" Microsoft SQL Server Management Studio v17"}                
-                [pscustomobject]@{"ProductID"="6b9e8b26-8f50-44b9-94c6-7846084383ec";"ProductName"=" MS Security Essentials"}                
-                [pscustomobject]@{"ProductID"="84f5f325-30d7-41c4-81d1-87a0e6535b66";"ProductName"=" Office 2010"}
-                [pscustomobject]@{"ProductID"="704a0a4a-518f-4d69-9e03-10ba44198bd5";"ProductName"=" Office 2013"}
-                [pscustomobject]@{"ProductID"="25aed893-7c2d-4a31-ae22-28ff8ac150ed";"ProductName"=" Office 2016"}                
-                [pscustomobject]@{"ProductID"="30eb551c-6288-4716-9a78-f300ec36d72b";"ProductName"=" Office 365 Client"}                
-                [pscustomobject]@{"ProductID"="7cf56bdd-5b4e-4c04-a6a6-706a2199eff7";"ProductName"=" Report Viewer 2005"}
-                [pscustomobject]@{"ProductID"="79adaa30-d83b-4d9c-8afd-e099cf34855f";"ProductName"=" Report Viewer 2008"}
-                [pscustomobject]@{"ProductID"="f7f096c9-9293-422d-9be8-9f6e90c2e096";"ProductName"=" Report Viewer 2010"}                
-                [pscustomobject]@{"ProductID"="6cf036b9-b546-4694-885a-938b93216b66";"ProductName"=" Security Essentials"}                
-                [pscustomobject]@{"ProductID"="9f3dd20a-1004-470e-ba65-3dc62d982958";"ProductName"=" Silverlight"}
-                [pscustomobject]@{"ProductID"="c96c35fc-a21f-481b-917c-10c4f64792cb";"ProductName"=" SQL Server Feature Pack"}                
-                [pscustomobject]@{"ProductID"="a3c2375d-0c8a-42f9-bce0-28333e198407";"ProductName"=" Windows 10"}
-                [pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}
-                [pscustomobject]@{"ProductID"="6407468e-edc7-4ecd-8c32-521f64cee65e";"ProductName"=" Windows 8.1"}                
-                [pscustomobject]@{"ProductID"="8c3fcc84-7410-4a95-8b89-a166a0190486";"ProductName"=" Windows Defender"}
-                [pscustomobject]@{"ProductID"="ba0ae9cc-5f01-40b4-ac3f-50192b5d6aaf";"ProductName"=" Windows Server 2008"}
-                [pscustomobject]@{"ProductID"="fdfe8200-9d98-44ba-a12a-772282bf60ef";"ProductName"=" Windows Server 2008 R2"}                
-                [pscustomobject]@{"ProductID"="d31bd4c3-d872-41c9-a2e7-231f372588cb";"ProductName"=" Windows Server 2012 R2"}                
-                [pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
-                [pscustomobject]@{"ProductID"="f702a48c-919b-45d6-9aef-ca4248d50397";"ProductName"=" Windows Server 2019"}                
-                [pscustomobject]@{"ProductID"="26997d30-08ce-4f25-b2de-699c36a8033a";"ProductName"=" Windows Vista"}                            
-            )            
-            $updateClassification = @(                
-                [pscustomobject]@{"ProductID"="0fa1201d-4330-4fa8-8ae9-b877473b6441";"ProductName"=" Security Updates"}                
-            )                             
-        }       
-        #IF PVA
-        "PVA"{
-            $SMSProvider = "sccm01.plab.varandas.com"
-            $SCCMSite = "PVA"            
-            $TemplateName = "VAR-"                           
-            $timeReport = 20     
-            $severity = 8
-            $updateProducts = @(                
-                [pscustomobject]@{"ProductID"="fa5ef799-b817-439e-abf7-c76ba0cacb75";"ProductName"=" ASP.NET Web Frameworks"}                
-                [pscustomobject]@{"ProductID"="83aed513-c42d-4f94-b4dc-f2670973902d";"ProductName"=" CAPICOM"}                
-                [pscustomobject]@{"ProductID"="0bbd2260-7478-4553-a791-21ab88e437d2";"ProductName"=" Device Health"}                
-                [pscustomobject]@{"ProductID"="5cc25303-143f-40f3-a2ff-803a1db69955";"ProductName"=" Locally published packages"}                
-                [pscustomobject]@{"ProductID"="6ac905a5-286b-43eb-97e2-e23b3848c87d";"ProductName"=" Microsoft Advanced Threat Analytics"}                
-                [pscustomobject]@{"ProductID"="f3869cc3-897b-4339-bb10-32ab2c765862";"ProductName"=" Microsoft Monitoring Agent"}                
-                [pscustomobject]@{"ProductID"="ca6616aa-6310-4c2d-a6bf-cae700b85e86";"ProductName"=" Microsoft SQL Server 2017"}
-                [pscustomobject]@{"ProductID"="dee854fd-e9d2-43fd-bbc3-f7568e3ce324";"ProductName"=" Microsoft SQL Server Management Studio v17"}                
-                [pscustomobject]@{"ProductID"="6b9e8b26-8f50-44b9-94c6-7846084383ec";"ProductName"=" MS Security Essentials"}                
-                [pscustomobject]@{"ProductID"="6248b8b1-ffeb-dbd9-887a-2acf53b09dfe";"ProductName"=" Office 2002/XP"}
-                [pscustomobject]@{"ProductID"="1403f223-a63f-f572-82ba-c92391218055";"ProductName"=" Office 2003"}
-                [pscustomobject]@{"ProductID"="041e4f9f-3a3d-4f58-8b2f-5e6fe95c4591";"ProductName"=" Office 2007"}
-                [pscustomobject]@{"ProductID"="84f5f325-30d7-41c4-81d1-87a0e6535b66";"ProductName"=" Office 2010"}
-                [pscustomobject]@{"ProductID"="704a0a4a-518f-4d69-9e03-10ba44198bd5";"ProductName"=" Office 2013"}
-                [pscustomobject]@{"ProductID"="25aed893-7c2d-4a31-ae22-28ff8ac150ed";"ProductName"=" Office 2016"}                
-                [pscustomobject]@{"ProductID"="30eb551c-6288-4716-9a78-f300ec36d72b";"ProductName"=" Office 365 Client"}                
-                [pscustomobject]@{"ProductID"="7cf56bdd-5b4e-4c04-a6a6-706a2199eff7";"ProductName"=" Report Viewer 2005"}
-                [pscustomobject]@{"ProductID"="79adaa30-d83b-4d9c-8afd-e099cf34855f";"ProductName"=" Report Viewer 2008"}
-                [pscustomobject]@{"ProductID"="f7f096c9-9293-422d-9be8-9f6e90c2e096";"ProductName"=" Report Viewer 2010"}                
-                [pscustomobject]@{"ProductID"="6cf036b9-b546-4694-885a-938b93216b66";"ProductName"=" Security Essentials"}                
-                [pscustomobject]@{"ProductID"="9f3dd20a-1004-470e-ba65-3dc62d982958";"ProductName"=" Silverlight"}
-                [pscustomobject]@{"ProductID"="c96c35fc-a21f-481b-917c-10c4f64792cb";"ProductName"=" SQL Server Feature Pack"}                
-                [pscustomobject]@{"ProductID"="cc4ab3ac-9d9a-4f53-97d3-e0d6de39d119";"ProductName"=" System Center 2016 - Operations Manager"}
-                [pscustomobject]@{"ProductID"="e505a854-6941-484f-a107-ebf0d1b64820";"ProductName"=" System Center 2016 - Orchestrator"}
-                [pscustomobject]@{"ProductID"="cd8d80fe-5b55-48f1-b37a-96535dca6ae7";"ProductName"=" TMG Firewall Client"}
-                [pscustomobject]@{"ProductID"="a0dd7e72-90ec-41e3-b370-c86a245cd44f";"ProductName"=" Visual Studio 2005"}
-                [pscustomobject]@{"ProductID"="e3fde9f8-14d6-4b5c-911c-fba9e0fc9887";"ProductName"=" Visual Studio 2008"}
-                [pscustomobject]@{"ProductID"="c9834186-a976-472b-8384-6bb8f2aa43d9";"ProductName"=" Visual Studio 2010"}
-                [pscustomobject]@{"ProductID"="cbfd1e71-9d9e-457e-a8c5-500c47cfe9f3";"ProductName"=" Visual Studio 2010 Tools for Office Runtime"}
-                [pscustomobject]@{"ProductID"="e1c753f2-9f79-4577-b75b-913f4230feee";"ProductName"=" Visual Studio 2010 Tools for Office Runtime"}
-                [pscustomobject]@{"ProductID"="abddd523-04f4-4f8e-b76f-a6c84286cc67";"ProductName"=" Visual Studio 2012"}
-                [pscustomobject]@{"ProductID"="cf4aa0fc-119d-4408-bcba-181abb69ed33";"ProductName"=" Visual Studio 2013"}
-                [pscustomobject]@{"ProductID"="1731f839-8830-4b9c-986e-82ee30b24120";"ProductName"=" Visual Studio 2015"}
-                [pscustomobject]@{"ProductID"="a3c2375d-0c8a-42f9-bce0-28333e198407";"ProductName"=" Windows 10"}
-                [pscustomobject]@{"ProductID"="d2085b71-5f1f-43a9-880d-ed159016d5c6";"ProductName"=" Windows 10 LTSB"}
-                [pscustomobject]@{"ProductID"="3b4b8621-726e-43a6-b43b-37d07ec7019f";"ProductName"=" Windows 2000"}
-                [pscustomobject]@{"ProductID"="bfe5b177-a086-47a0-b102-097e4fa1f807";"ProductName"=" Windows 7"}
-                [pscustomobject]@{"ProductID"="6407468e-edc7-4ecd-8c32-521f64cee65e";"ProductName"=" Windows 8.1"}                
-                [pscustomobject]@{"ProductID"="b1b8f641-1ff2-4ae6-b247-4fe7503787be";"ProductName"=" Windows Admin Center"}                
-                [pscustomobject]@{"ProductID"="8c3fcc84-7410-4a95-8b89-a166a0190486";"ProductName"=" Windows Defender"}
-                [pscustomobject]@{"ProductID"="50c04525-9b15-4f7c-bed4-87455bcd7ded";"ProductName"=" Windows Dictionary Updates"}                
-                [pscustomobject]@{"ProductID"="dbf57a08-0d5a-46ff-b30c-7715eb9498e9";"ProductName"=" Windows Server 2003"}
-                [pscustomobject]@{"ProductID"="ba0ae9cc-5f01-40b4-ac3f-50192b5d6aaf";"ProductName"=" Windows Server 2008"}
-                [pscustomobject]@{"ProductID"="fdfe8200-9d98-44ba-a12a-772282bf60ef";"ProductName"=" Windows Server 2008 R2"}                
-                [pscustomobject]@{"ProductID"="d31bd4c3-d872-41c9-a2e7-231f372588cb";"ProductName"=" Windows Server 2012 R2"}                
-                [pscustomobject]@{"ProductID"="569e8e8f-c6cd-42c8-92a3-efbb20a0f6f5";"ProductName"=" Windows Server 2016"}                
-                [pscustomobject]@{"ProductID"="f702a48c-919b-45d6-9aef-ca4248d50397";"ProductName"=" Windows Server 2019"}                
-                [pscustomobject]@{"ProductID"="26997d30-08ce-4f25-b2de-699c36a8033a";"ProductName"=" Windows Vista"}                
-                [pscustomobject]@{"ProductID"="558f4bc3-4827-49e1-accf-ea79fd72d4c9";"ProductName"=" Windows XP"}
-                [pscustomobject]@{"ProductID"="a4bedb1d-a809-4f63-9b49-3fe31967b6d0";"ProductName"=" Windows XP 64-Bit Edition Version 2003"}
-                [pscustomobject]@{"ProductID"="874a7757-3a13-43b2-a7f2-cf2ff43dd6bf";"ProductName"=" Windows XP Embedded"}
-                [pscustomobject]@{"ProductID"="4cb6ebd5-e38a-4826-9f76-1416a6f563b0";"ProductName"=" Windows XP x64 Edition"}                
-            )            
-            $updateClassification = @(                
-                [pscustomobject]@{"ProductID"="0fa1201d-4330-4fa8-8ae9-b877473b6441";"ProductName"=" Security Updates"}                
-            )                           
-        }        
-        default{
-            $SMSProvider,$SCCMSite,$TemplateName = $null
-            $severity=8
-            $updateProducts = @(
+        } while (($answer -ne "Y") -and ($answer -ne "n"))
+        #aborting script
+        if ($answer -eq "n"){                
+            Write-Log -iTabs 5 "User don't want to create Software Update Group $SUGName at this moment"-bConsole $true -sColor red
+            Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
+            $global:iExitCode = 5002
+            return $global:iExitCode
+        }   
+        # Creating sugMSFT
+        if ($answer -eq "y"){                                            
+            Write-Log -iTabs 4 "Creating $SUGName..." -bConsole $true
+            try{
+                New-CMSoftwareUpdateGroup -Name $SUGName | Out-Null                                
+                Write-Log -iTabs 5 "$SUGName was created" -bConsole $true -sColor green  
+                $sug = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -eq $SUGName}
+                return $null                                                             
+            }    
+            catch{                                
+                Write-Log -iTabs 5 "Error while creating $SUGName. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
+                Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9006
+                return $global:iExitCode                            
+            }            
+        } 
+    }    
+    else{
+       return $sug.Updates
+    }    
+}
+Function Find-Product {
+    param(        
+        [Parameter(Mandatory=$true)][string]$ID
+    )
+    $updateProducts = @(
                 [pscustomobject]@{"ProductID"="fdcfda10-5b1f-4e57-8298-c744257e30db";"ProductName"=" Active Directory Rights Management Services Client 2.0"}
                 [pscustomobject]@{"ProductID"="5d6a452a-55ba-4e11-adac-85e180bda3d6";"ProductName"=" Antigen for Exchange/SMTP"}
                 [pscustomobject]@{"ProductID"="fa5ef799-b817-439e-abf7-c76ba0cacb75";"ProductName"=" ASP.NET Web Frameworks"}
@@ -763,9 +631,7 @@ function ConvertTo-Array{
                 [pscustomobject]@{"ProductID"="874a7757-3a13-43b2-a7f2-cf2ff43dd6bf";"ProductName"=" Windows XP Embedded"}
                 [pscustomobject]@{"ProductID"="4cb6ebd5-e38a-4826-9f76-1416a6f563b0";"ProductName"=" Windows XP x64 Edition"}
                 [pscustomobject]@{"ProductID"="81b8c03b-9743-44b1-8c78-25e750921e36";"ProductName"=" Works 6-9 Converter"}
-                [pscustomobject]@{"ProductID"="a13d331b-ce8f-40e4-8a18-227bf18f22f3";"ProductName"=" Writer Installation and Upgrades"}
-            )            
-            $updateClassification = @(
+                [pscustomobject]@{"ProductID"="a13d331b-ce8f-40e4-8a18-227bf18f22f3";"ProductName"=" Writer Installation and Upgrades"}           
                 [pscustomobject]@{"ProductID"="051f8713-e600-4bee-b7b7-690d43c78948";"ProductName"=" WSUS Infrastructure Updates"}
                 [pscustomobject]@{"ProductID"="0fa1201d-4330-4fa8-8ae9-b877473b6441";"ProductName"=" Security Updates"}
                 [pscustomobject]@{"ProductID"="28bc880e-0592-4cbf-8f95-c79b17911d5f";"ProductName"=" Update Rollups"}
@@ -780,6 +646,493 @@ function ConvertTo-Array{
                 [pscustomobject]@{"ProductID"="e6cf1350-c01b-414d-a61f-263d14d133b4";"ProductName"=" Critical Updates"}
                 [pscustomobject]@{"ProductID"="ebfc1fc5-71a4-4f7b-9aca-3b9a503104a0";"ProductName"=" Drivers"}
             )
+    return ($updateProducts | Where {$_.ProductID -eq $ID}).ProductName
+}
+function Get-UpdFromADR {
+# Function read an ADR converts its XML into Powershell parameters and return Object array with Updates matching query rules
+    param(
+        [boolean]$IgnoreDate=$false,
+        [Parameter(Mandatory=$true)][string]$ADRName
+    )
+    try{
+        $adr = Get-CMAutoDeploymentRule -name $ADRName -WarningAction SilentlyContinue
+    }
+    catch{
+        #error retrieving ADR
+        return $false
+    }    
+    $xml = [xml]$adr.UpdateRuleXML
+    #allocate Arrays
+    $articleNE =@()
+    $articleE =@()
+    $bulletinNE =@()
+    $bulletinE =@()
+    $customSev =@()
+    $descNE =@()
+    $descE =@()
+    $language =@()
+    $product =@()
+    $severity =@()
+    $supersede = $false
+    $tag = @()
+    $displayNameNE =@()
+    $displayNameE =@()
+    $updateclassification =@()
+    $company =@()
+    #loop through each Description Item and if found add to query rule
+    foreach ($id in $xml.UpdateXML.UpdateXMLDescriptionItems.UpdateXMLDescriptionItem){
+
+        Switch($id.PropertyName){
+            Daterevised {
+                Write-Verbose "Date Revised."  
+                if ($IgnoreDate){
+                    Write-Verbose "Ignoring Update Date due to paremeter IgnoreDate being true."  
+                }
+                Elseif($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{
+                    #ignore ADR rule and consider $timeReport variable
+                    foreach ($rule in $id.MatchRules){                        
+                        #parse result 0:0:0:0 -> Y:M:D:H
+                        $time = $rule.string.Split(":")
+                        $days = Get-Date                        
+                        $days = $days.AddYears(-$time[0])
+                        $days = $days.AddMonths(-$time[1])
+                        $days = $days.AddDays(-$time[2])
+                        $days = $days.AddHours(-$time[3])
+                        Write-Verbose "MinPostDate: $days"
+                    }
+                }
+            }
+            ContentSize {
+                Write-Verbose "ContentSize" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules){                        
+                        if ($rule.String -eq ">-0"){
+                            Write-Verbose "All Architectures - no need to convert into WMI"
+                        }                        
+                    }
+                }
+                Write-Verbose "Disregarding this criteria since Get-CMSoftwareUpdates does not return usefull values"        
+            }
+            ArticleID {
+                Write-Verbose "ArticleID" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.String){
+                        if ($rule -like "*-*"){
+                            Write-Verbose "Adding $($rule) as NOT EQUAL" 
+                            $articleNE += $rule.replace("-","").replace("'","")
+                        }                        
+                        else{
+                            Write-Verbose "Adding $($rule) as EQUAL" 
+                            $articleE += $rule.replace("'","")
+                        }
+                    }
+                    Write-Verbose "Article must be equal to $articleE or not equal to $articleNE"
+                }
+            }
+            BulletinID {
+                Write-Verbose "BulletinID" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.String){ 
+                        if ($rule -like "*-*"){
+                            Write-Verbose "Adding $($rule) as NOT EQUAL" 
+                            $bulletinNE += $rule.replace("-","").replace("'","")
+                        }                        
+                        else{
+                            Write-Verbose "Adding $($rule) as EQUAL" 
+                            $bulletinE += $rule.replace("'","")
+                        }
+                    }
+                    Write-Verbose "Bulletin must be equal to $bulletinE or not equal to $bulletinNE"            
+                }
+            }
+            CustomSeverity {
+                Write-Verbose "CustomSeverity" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $customSev += $rule.replace("'","")
+                    }                       
+                    Write-Verbose "CustomSeverity must one of $customSev"            
+                }
+            }        
+            LocalizedDescription {
+                Write-Verbose "LocalizedDescription" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.String){ 
+                        if ($rule -like "*-*"){
+                            Write-Verbose "Adding $($rule) as NOT EQUAL" 
+                            $descNE += $rule.replace("-","").replace("'","")
+                        }                        
+                        else{
+                            Write-Verbose "Adding $($rule) as EQUAL" 
+                            $descE += $rule.replace("'","")
+                        }
+                    }
+                    Write-Verbose "Description must be equal to $descE or not equal to $descNE"            
+                }
+            }
+            UpdateLocales {
+                Write-Verbose "UpdateLocales"
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $language += $rule.replace("'","")
+                    }               
+                    $language += "Locale:0"       
+                    Write-Verbose "Language must one of $language"            
+                }
+            }
+            _Product {
+                Write-Verbose "_Product" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $product += $rule.replace("'","")
+                        $prodQuery = $rule.replace("'","").replace("Product:","")
+                        Write-Verbose "Product Selected in this ADR: $(Find-Product -ID $prodQuery)"
+                        
+                    }                       
+                    Write-Verbose "Product must be one of $product"            
+                }
+            }
+            NumMissing {
+                Write-Verbose "NumMissing" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules){     
+                        
+                    }
+                }
+                Write-Verbose "Disregarding this criteria since Get-CMSoftwareUpdates does not return usefull values"        
+            }
+            Severity {
+                Write-Verbose "Severity" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $severity += $rule.replace("'","")
+                    }                       
+                    Write-Verbose "Severity must one of $severity"            
+                }       
+            }
+            IsSuperseded {
+                Write-Verbose "IsSuperseded" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        if ($rule -eq "false"){
+                            $supersede = $false
+                        }
+                        elseif($rule -eq "true"){
+                            $supersede = $true
+                        }
+                    }                       
+                    Write-Verbose "Supersede rule to be considered: $supersede"            
+                }         
+            }
+            CMTag {
+                Write-Verbose "CMTag"
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $tag += $rule.replace("'","")
+                    }                       
+                    Write-Verbose "Tag must one of $tag"            
+                }        
+            }
+            LocalizedDisplayName {
+                Write-Verbose "LocalizedDisplayName"
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.String){
+                        if ($rule -like "*-*"){
+                            Write-Verbose "Adding $($rule) as NOT EQUAL"
+                            $displayNameNE += $rule.replace("-","").replace("'","")
+                        }                        
+                        else{
+                            Write-Verbose "Adding $($rule) as EQUAL"
+                            $displayNameE += $rule.replace("'","")
+                        }
+                    }
+                    Write-Verbose "DisplayName must be equal to $displayNameE or not equal to $displayNameNE"
+                }        
+            }
+            _UpdateClassification {
+                Write-Verbose "_UpdateClassification" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $updateclassification += $rule.replace("'","")
+                        $prodQuery = $rule.replace("'","").replace("UpdateClassification:","")
+                        Write-Verbose "Product Selected in this ADR: $(Find-Product -ID $prodQuery)"
+                    }                       
+                    Write-Verbose "Update Classification must one of $updateclassification"            
+                }      
+            }
+            _Company {
+                Write-Verbose "_Company" 
+                if($id.MatchRules.string.Count -eq 0){
+                    Write-Verbose "Skipping this criteria as no rules were found"
+                }
+                else{                    
+                    foreach ($rule in $id.MatchRules.string){ 
+                        $company += $rule.replace("'","")
+                    }                       
+                    Write-Verbose "Company must one of $company"            
+                }     
+            }
+            default{            
+                #Error Handling Property unknown
+                Write-Verbose "default"             
+            }
+        }    
+    }
+    $upd = Get-CMSoftwareUpdate -fast | Select IsSuperseded,ArticleID,BulletinID,CustomSeverity,LocalizedDescription,UpdateLocales,Severity,CMTag,CategoryInstance_UniqueIDs,LocalizedDisplayName,CI_ID
+    Write-Verbose "$($upd.count) retrieved from SCCM WMI"    
+    $upd = $upd | Where {$_.IsSuperseded -eq $supersede}
+    Write-Verbose "$($upd.count) after applying Supersede filter"
+        
+    if ($articleNE.count -ne 0){
+        $upd = $upd | Where {$_.ArticleID -ne $articleNE}
+        Write-Verbose "$($upd.count) after applying Article not equal filter"
+    }
+    if ($articleE.count -ne 0){
+        $upd = $upd | Where {$_.ArticleID -eq $articleE}
+        Write-Verbose "$($upd.count) after applying Article equal filter"
+    }
+    if ($bulletinNE.count -ne 0){
+        $upd = $upd | Where {$_.BulletinID -eq $bulletinNE}
+        Write-Verbose "$($upd.count) after applying Bulletin not equal filter"
+    }
+    if ($bulletinE.count -ne 0){
+        $upd = $upd | Where {$_.BulletinID -eq $bulletinE}
+        Write-Verbose "$($upd.count) after applying Bulletin equal filter"
+    }
+    if ($customSev.count -ne 0){
+        $upd = $upd | Where {$customSev -contains $_.CustomSeverity}
+        Write-Verbose "$($upd.count) after applying Custom Severity filter"
+    }
+    if ($descNE.count -ne 0){
+        $upd = $upd | Where {$_.LocalizedDescription -ne $descNE}
+        Write-Verbose "$($upd.count) after applying Description not equal filter"
+    }
+    if ($descE.count -ne 0){
+        $upd = $upd | Where {$_.LocalizedDescription -eq $descE}
+        Write-Verbose "$($upd.count) after applying Description  equal filter"
+    }
+    if ($language.count -ne 0){
+        $upd = $upd | Where {$language -contains$_.UpdateLocales}
+        Write-Verbose "$($upd.count) after applying Language filter"
+    }   
+    if ($severity.count -ne 0){
+        $upd = $upd | Where {$severity -contains $_.Severity}
+        Write-Verbose "$($upd.count) after applying severity filter"
+    }
+    if ($tag.count -ne 0){
+        $upd = $upd | Where {$tag -contains $_.CMTag}
+        Write-Verbose "$($upd.count) after applying Tag filter"
+    }    
+    if (!(($updateclassification.count -eq 0) -and ($product.count -eq 0))){
+        Write-Verbose "Classifications to be queried: $($updateclassification.count)"
+        Write-Verbose "Products to be queried: $($product.count)"
+        $tempUpArray=@()
+        foreach ($up in $upd){
+            #Write-Verbose "Evaluating $($up.LocalizedDisplayName)"            
+            $productFound=$false
+            $catFound=$false
+            foreach ($cat in $up.CategoryInstance_UniqueIDs){
+                #Write-Verbose "    Analizing $cat"
+                if (($updateclassification -contains $cat) -or ($updateclassification.count -eq 0)){
+                    $catFound=$true
+                    #Write-Verbose "    Category Found!"                    
+                }
+                if (($product -contains $cat) -or ($product.count -eq 0)){
+                    $productFound=$true
+                    #Write-Verbose "    Product Found!"                    
+                }
+            }
+            if ($catFound -and $productFound){
+                $tempUpArray+=$up
+                Write-Verbose "        Adding $($up.LocalizedDisplayName)!"                    
+            }
+            else{
+                #Write-Verbose "        Skipping $($up.LocalizedDisplayName)!"                    
+            }            
+        }
+        #Write-Verbose "    Remaining updates after Classification and product query: $($tempUpArray.count)"
+        $upd = $tempUpArray
+        Write-Verbose "$($upd.count) after applying Classification and Product equal filter"
+    }
+    $tempUpArray=@()
+    if ($displayNameNE.count -ne 0){
+        foreach ($up in $upd){
+            $upvalid=$true
+            foreach ($displayNE in $displayNameNE){
+                if ($up.LocalizedDisplayName.ToUpper().Contains($displayNE.ToUpper())){
+                    $upvalid=$false
+                    #Write-Verbose "$displayNE found in title:$($up.LocalizedDisplayName). Removing Update! "
+                }
+            }
+            if ($upvalid){
+                Write-Verbose "Keeping $($up.LocalizedDisplayName) in Update Array"
+                $tempUpArray+=$up
+            }        
+        }
+        $upd = $tempUpArray         
+        Write-Verbose "$($upd.count) after applying Description not equal filter"
+    }
+    $tempUpArray=@()
+    if ($displayNameE.count -ne 0){
+        foreach ($up in $upd){
+            $upvalid=$false
+            foreach ($displayE in $displayNameE){
+                if ($up.LocalizedDisplayName.ToUpper().contains($displayE.ToUpper())){
+                    #Write-Verbose "$displayE found in title:$($up.LocalizedDisplayName). Keeping Update!"
+                    $upvalid=$true
+                }
+            }
+            if ($upvalid){
+                Write-Verbose "Keeping $($up.LocalizedDisplayName) in Update Array"
+                $tempUpArray+=$up
+            }        
+        }
+        $upd = $tempUpArray         
+        Write-Verbose "$($upd.count) after applying Description equal filter"
+    }        
+    return $upd.CI_ID
+}
+function Renew-SUG {
+    param(
+        [string]$SUGName,
+        $UpdArray,
+        [int]$ArrayLimit=900,
+        [ValidateSet("Add","Remove")][string]$act
+    )
+    if($UpdArray.Count -ge $ArrayLimit){    
+        $UpdArray = Split-Array -array $UpdArray -size $ArrayLimit
+        try{
+            if ($act -eq "Add"){
+                foreach ($uArray in $UpdArray){
+                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $uArray -SoftwareUpdateGroupName $SUGName
+                }
+            }
+            elseif($act -eq "Remove"){
+                foreach ($uArray in $UpdArray){
+                    Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $uArray -SoftwareUpdateGroupName $SUGName -Force
+                }
+            }
+            return $true
+        }
+        catch{
+            return $false
+        }
+    }
+    else{
+        try{
+            if ($act -eq "Add"){
+                Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $UpdArray -SoftwareUpdateGroupName $SUGName
+            }            
+            elseif($act -eq "Remove"){            
+                Remove-CMSoftwareUpdateFromGroup -SoftwareUpdateId $UpdArray -SoftwareUpdateGroupName $SUGName -Force            
+            }
+            return $true
+        }
+        catch{
+            return $false
+        }
+    }
+}
+
+#endregion
+# --------------------------------------------------------------------------------------------
+#region VARIABLES
+# Standard Variables
+    # *****  Change Logging Path and File Name Here  *****    
+    $sOutFileName	= "Renew-ReportSUGs.log" # Log File Name    
+    $sEventSource   = "ToolBox" # Event Source Name
+    # ****************************************************
+    $sScriptName 	= $MyInvocation.MyCommand
+    $sScriptPath 	= Split-Path -Parent $MyInvocation.MyCommand.Path
+    $sLogRoot		= Get-ChildItem -Path HKLM:\SOFTWARE\Microsoft\SMS\Tracing\
+    $sLogRoot       = $sLogRoot[0].GetValue('Tracefilename')
+    $sLogRoot       = $sLogRoot.Substring(0,$SLogRoot.LastIndexOf('\')+1)    
+    $sOutFilePath   = $sLogRoot
+    $sLogFile		= Join-Path -Path $SLogRoot -ChildPath $sOutFileName
+    $global:iExitCode = 0
+    $sUserName		= $env:username
+    $sUserDomain	= $env:userdomain
+    $sMachineName	= $env:computername
+    $sCMDArgs		= $MyInvocation.Line
+    $bAllow64bitRelaunch = $true
+    $iLogFileSize 	= 1048576
+    # ****************************************************
+    # Script Specific Variables
+    $timeReport = 30 # Defines how long before an update is considered within Report Groups
+    $maxArraySizeSUGchange = 900
+    
+    switch ($Scope){
+        #IF CAS
+        "CAS"{
+            $SMSProvider = "sccm01.zlab.varandas.com"            
+            $SCCMSite = "CAS"            
+            $TemplateName = "WKS-SecurityUpdates-"                
+            $timeReport = 45                 
+        }          
+        #IF VAR
+        "VAR"{
+            $SMSProvider = "sccm01.vlab.varandas.com"
+            $SCCMSite = "VAR"
+            $TemplateName = "VAR-"                        
+            $timeReport = 45
+            $severity = 8
+                             
+        }       
+        #IF PVA
+        "PVA"{
+            $SMSProvider = "sccm01.plab.varandas.com"
+            $SCCMSite = "PVA"            
+            $TemplateName = "VAR-"                           
+            $timeReport = 20     
+            $severity = 8            
+                                       
+        }        
+        default{
+            $SMSProvider,$SCCMSite,$TemplateName = $null
+            $severity=8
+            
         }
     }      
 #endregion 
@@ -900,8 +1253,7 @@ Function MainSub{
             }
         }
         # Testing SCCM Drive
-        try{
-            $originalLocation = Get-Location
+        try{            
             Write-Log -iTabs 3 "Connecting to SCCM PS Location at $($SCCMSite):\" -bConsole $true -bTxtLog $false        
             Set-Location $SCCMSite":"            
             Write-Log -iTabs 4 "Connected to SCCM PS Location at $($SCCMSite):\" -bConsole $true -sColor Green      
@@ -917,10 +1269,7 @@ Function MainSub{
         Write-Log -iTabs 4 "SCCM Scope:                  $Scope" -bConsole $true -sColor Yellow        
         Write-Log -iTabs 4 "SMSProvider:                 $SMSProvider" -bConsole $true                
         Write-Log -iTabs 4 "SCCM Site Code:              $SCCMSite" -bConsole $true                 
-        Write-Log -iTabs 4 "Update Age to be Reported:   $timeReport" -bConsole $true
-        Write-Log -iTabs 4 "Severity:                    $severity" -bConsole $true
-        Write-Log -iTabs 4 "Products to be Considered:   $updateProducts" -bConsole $true
-        Write-Log -iTabs 4 "Classifications:             $updateClassification" -bConsole $true
+        Write-Log -iTabs 4 "Update Age to be Reported:   $timeReport" -bConsole $true        
 
     #endregion  
     #region 1.2 Is this SCCM Admin User?            
@@ -955,18 +1304,12 @@ Function MainSub{
                     $defaultAdr = Get-CMAutoDeploymentRule -Name "$($TemplateName)ADR" -WarningAction SilentlyContinue
                     if ($defaultAdr.Count -gt 0){                        
                         Write-Log -iTabs 4 "ADR ($($TemplateName)ADR) was found in SCCM Environment." -bConsole $true
-                        Write-Log -iTabs 4 "Verifying if products configured in ADR match settings for this environment." -bConsole $true
-                        [xml]$rule = $defaultAdr.UpdateRuleXML
-                        $products = ($rule.UpdateXML.UpdateXMLDescriptionItems.UpdateXMLDescriptionItem | where {$_.PropertyName -eq "_Product"}).MatchRules.string
-                        foreach($updateProduct in $updateProducts){                        
-                            if (!(($products -replace "'Product:","") -replace "'","" -contains $updateProduct.ProductID)){                            
-                                Write-Log -iTabs 5 "$($updateProduct.ProductName) Not Found in ADR! Consider updating $($TemplateName)ADR, adding this products." -sColor Yellow
-                            }
-                        }
                     }
                     else{                        
-                        Write-Log -iTabs 4 "ADR ($($TemplateName)ADR) was not found in SCCM Environment." -bConsole $true -sColor yellow
-                        Write-Log -iTabs 4 "It is strongly recomended to have an ADR responsible for creating Monhtly updates." -bConsole $true -sColor yellow
+                        Write-Log -iTabs 4 "ADR ($($TemplateName)ADR) was not found in SCCM Environment." -bConsole $true -sColor yellow                                                
+                        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                        $global:iExitCode = 9004
+                        return $global:iExitCode
                     }
                 }
                 catch{                    
@@ -977,209 +1320,37 @@ Function MainSub{
                 }
             #endregion
             #region Checking SUGs           
-                Write-Log -iTabs 3 "Checking if SUGs are present." -bConsole $true
-                #region Gettings SUG Info         
-                try{
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | ConvertTo-Array                                               
-                    }
-                #Error while getting SUG Info
-                catch{                                                                        
-                        Write-Log -iTabs 4 "Unable to query Software Update Groups. Permission Error. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red                        
-                        Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 9005
-                        return $global:iExitCode
-                    }      
-                #endregion             
-                #region sugMSFT
-                #sugMSFT was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)MSFT was found." -bConsole $true
-                    $sugMSFT = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}
+                Write-Log -iTabs 3 "Checking if SUGs are present." -bConsole $true                
+                try{                         
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-MSFT")." -bConsole $true
+                    $sugMSFTCIs=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-Blacklist")." -bConsole $true
+                    $sugBlacklistCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Blacklist")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-Whitelist")." -bConsole $true
+                    $sugWhiteListCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Whitelist")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-Compliance")." -bConsole $true
+                    $sugComplianceCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Compliance")
+                    
+                    Write-Log -iTabs 4 "Checking $($TemplateName+"Rpt-Missing")." -bConsole $true
+                    $sugMissingCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Missing")
                 }
-                #sugMSFT was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)MSFT wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)MSFT'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)MSFT at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugMSFT
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)MSFT..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)MSFT" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)MSFT was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)MSFT. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"} 
-                    } 
-                }
-                #endregion     
-                #region sugBlacklist
-                #sugBlacklist was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Blacklist was found." -bConsole $true
-                    $sugBlacklist = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"}
-                }
-                #sugBlacklist was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Blacklist wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Blacklist'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Blacklist at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugBlacklist
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Blacklist..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Blacklist" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Blacklist was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Blacklist. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Blacklist"} 
-                    } 
-                }
-                #endregion   
-                #region sugReport
-                #sugReport was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Report was found." -bConsole $true
-                    $sugReport = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}
-                }
-                #sugReport was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Report wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Report'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Report at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugReport
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Report..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Report" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Report was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Report. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"} 
-                    } 
-                }
-                #endregion   
-                #region sugMissing
-                #sugMissing was found
-                if (($sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}).Count -gt 0){                        
-                    Write-Log -iTabs 4 "$($TemplateName)Missing was found." -bConsole $true
-                    $sugMissing = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}
-                }
-                #sugMissing was not found
-                else{
-                    Write-Log -iTabs 4 "$($TemplateName)Missing wasn't found. This SUG is required to proceed with script execution." -bConsole $true -sColor yellow
-                    do{
-                        if($action -like "*Run"){$answer = "Y"}
-                        else{
-                            $answer = Read-Host "                                      Do you want to create Software Update Group '$($TemplateName)Missing'? [Y/n] "                
-                        }
-                    } while (($answer -ne "Y") -and ($answer -ne "n"))
-                    #aborting script
-                    if ($answer -eq "n"){                
-                        Write-Log -iTabs 5 "User don't want to create Software Update Group $($TemplateName)Missing at this moment"-bConsole $true -sColor red
-                        Write-Log -iTabs 5 "Aborting script." -bConsole $true -sColor red
-                        $global:iExitCode = 5002
-                        return $global:iExitCode
-                    }   
-                    # Creating sugMissing
-                    if ($answer -eq "y"){                                            
-                        Write-Log -iTabs 4 "Creating $($TemplateName)Missing..." -bConsole $true
-                        try{
-                            New-CMSoftwareUpdateGroup -Name "$($TemplateName)Missing" | Out-Null                                
-                            Write-Log -iTabs 4 "$($TemplateName)Missing was created" -bConsole $true -sColor green                                                                
-                        }    
-                        catch{                                
-                            Write-Log -iTabs 4 "Error while creating $($TemplateName)Missing. Ensure script is running with SCCM Full Admin permissionts and access to SCCM WMI Provider." -bConsole $true -sColor red
-                            Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
-                            $global:iExitCode = 9006
-                            return $global:iExitCode                            
-                        }
-                        Write-Log -iTabs 4 "Reloading SUG Array." -bConsole $true      
-                        $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*"} | Sort LocalizedDisplayName | ConvertTo-Array                                            
-                        $AgedSUG = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"} 
-                    } 
-                }
-                #endregion               
-            #endregion           
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9014
+                    return $global:iExitCode    
+                }                
+            #endregion         
             #region Query all valid MSFT Updates            
-            Write-Log -iTabs 3 "Query all valid MSFT Updates." -bConsole $true
+            Write-Log -iTabs 3 "Query all updates from $($TemplateName)ADR, ignoring DatePosted criteria." -bConsole $true
             try{
-                $allUpds = Get-CMSoftwareUpdate -fast -DatePostedMax $(Get-Date).AddDays(-$timeReport)  | Where {
-                    $_.IsExpired-eq $false -and ` 
-                    $_.IsSuperseded -eq $false -and ` 
-                    $_.Severity -ge $severity       
-                } 
-                $MSFTUpdates=@()
-                foreach ($upd in $allUpds ){
-                    $prodCheck=$false
-                    $catCheck=$false
-                    foreach ($cat in $upd.CategoryInstance_UniqueIDs){
-                        if (($cat -like "Product*") -and ($updateProducts.ProductID -contains $($cat -replace "Product:",""))){
-                            $prodCheck=$true
-                        }
-                        elseif(($cat -like "Update*") -and ($updateClassification.ProductID -contains $($cat -replace "UpdateClassification:",""))){
-                            $catCheck=$true
-                        }
-                    }
-                    if ($prodCheck -and $catCheck){
-                        $MSFTUpdates+=$upd
-                    }    
-                }
-                 Write-Log -iTabs 4 "Found $($MSFTUpdates.Count) updates matching defined criteria." -bConsole $true                
+                #get all updates not expired, not superseded above severity trehshold, older than date                
+                $MSFTUpdatesCIs=Get-UpdFromADR -ADRName $($($TemplateName)+"ADR")
+                #from all updates, get retain those from the selected products, classification, add whitelist updates and remove blacklist update                               
+                 Write-Log -iTabs 4 "Found $($MSFTUpdatesCIs.Count) updates as valid." -bConsole $true                
             }
             catch{
                 Write-Log -iTabs 4 "Error getting Update info from SCCM WMI." -bConsole $true -sColor red
@@ -1192,7 +1363,7 @@ Function MainSub{
             Write-Log -iTabs 3 "Query all Deployed Updates." -bConsole $true            
             #Getting all Deployed SUGs
             try{
-                    $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*" -and $_.IsDeployed -eq $true} | ConvertTo-Array                                               
+                    $sugs = Get-CMSoftwareUpdateGroup | Where-Object {$_.LocalizedDisplayName -like "$TemplateName*" -and $_.IsDeployed -eq $true} #| ConvertTo-Array                                               
             }
             #Error while getting SUG Info
             catch{                                                                        
@@ -1202,34 +1373,59 @@ Function MainSub{
                 return $global:iExitCode
             }                  
             #from each sug, get all CI_IDs
-            $deployedUpdates =@()
+            $deployedUpdatesCIs =@()
             foreach ($sug in $sugs){
-                foreach ($upd in $sug.Updates){
-                    $deployedUpdates+=$upd
-                }
-            }
-            Write-Log -iTabs 4 "$($deployedUpdates.Count) updates found as currently deployed." -bConsole $true            
-            Write-Log -iTabs 4 "Not all deployed updates are meant to be tracked." -bConsole $true            
+                $deployedUpdatesCIs+=$sug.Updates                
+            }            
+            Write-Log -iTabs 4 "$($deployedUpdatesCIs.Count) updates found as currently deployed." -bConsole $true                        
             #endregion
     #endregion    
     #region 1.4 Finalizing Pre-Checks      
     Write-Log -iTabs 2 "1.4 - Finalizing Pre-Checks:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "SCCM WMI Info: $($MSFTUpdates.Count) updates found to be tracked." -bConsole $true
+    Write-Log -itabs 3 "$($MSFTUpdatesCIs.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdatesCIs.Count) Updates found Deployed." -bConsole $true    
     Write-Log -itabs 3
-    Write-Log -itabs 3 "Deployed SUG Information: $($deployedUpdates.Count) Updates found as Deployed." -bConsole $true
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
-    Write-Log -iTabs 4 "$($templateName)MSFT -> SUG containing all valid updates, matching defined criteria for tracking"
-    $initSugMsftUpd = $sugMSFT.Updates.Count
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-MSFT") -> SUG containing all valid updates, matching defined criteria for tracking"
+                        $initSugMsftUpd = $sugMSFTCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd"
-    Write-Log -iTabs 4 "$($templateName)Blacklist -> SUG containing all forbidden updates"
-    $initSugBlacklistUpd = $sugBlacklist.Updates.Count
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Blacklist") -> SUG containing all forbidden updates"
+                        $initSugBlacklistUpd = $sugBlacklistCIs.Count
     Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd"
-    Write-Log -iTabs 4 "$($templateName)Report -> SUG containing all deployed updates, matching defined criteria for tracking"
-    $initSugReportUpd = $sugReport.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd"
-    Write-Log -iTabs 4 "$($templateName)Missing -> SUG containing all valid updates, not found deployed. target to have zero updates"
-    $initSugMissingUpd = $sugMissing.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Whitelist") -> SUG containing all must-have updates"
+                        $initSugWhiteListUpd = $sugWhiteListCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Compliance") -> SUG containing all deployed updates, matching defined criteria for tracking"
+                        $initSugComplianceUpd = $sugComplianceCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugComplianceUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Missing") -> SUG containing all valid updates, not found deployed. target to have zero updates"
+                        $initSugMissingUpd = $sugMissingCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"   
+    Write-Log 
+    Write-Log -itabs 2 "Pre-Checks are complete. Script will make environment changes in the next interaction." -bConsole $true
+    Write-Log -itabs 2 "Getting User confirmation to proceed"
+    do{        
+        if ($action -eq "Check"){
+            Write-Log -iTabs 3 "Script would make environment changes in the next interaction but Action Check was identified. Script will log but not execute actions." -bConsole $true        
+        }
+        else{
+            Write-Log -iTabs 3 "Script will make environment changes in the next interaction" -bConsole $true -scolor Yellow        
+        }
+        if($action -like "*run"){
+            $answer = "Y"
+        }
+        else{
+            $answer = Read-Host "                                  |Do you want to proceed? [Y/n]"     
+        }   
+    } while (($answer -ne "Y") -and ($answer -ne "n"))
+    if ($answer -eq "n"){
+        Write-Log -iTabs 3 "User Aborting script." -bConsole $true -sColor red
+        $global:iExitCode = 8001
+        return $global:iExitCode
+    }
+    else{
+        Write-Log -iTabs 2 "User confirmation received." 
+    } 
     #endregion
     Write-Log -iTabs 1 "Completed 1 - Pre-Checks." -bConsole $true -sColor Cyan    
     Write-Log -iTabs 0 -bConsole $true
@@ -1238,107 +1434,259 @@ Function MainSub{
 
 # ===============================================================================================================================================================================
 #region 2_EXECUTION
-    Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan    
-    #region 2.1 - Making sure MSFT SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing MSFT SUG."     
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if ($sugMSFT.Updates -notcontains $MSFTUpd.CI_ID){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugMSFT.LocalizedDisplayName)"
+    Write-Log -iTabs 1 "Starting 2 - Execution."   -bConsole $true -sColor cyan
+    #region 2.1 - Making sure Blacklist and Whitelist SUG has valid Updates
+    Write-Log -itabs 2 "Making sure Blacklist and Whitelist SUG have valid Updates"
+    Write-Log -itabs 3 "Loading Updates from $($TemplateName+"Rpt-Whitelist")"    
+    $updToRemove=@()
+    foreach ($suglistUpdate in $sugWhiteListCIs){        
+        $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast | Select IsDeployed,IsSuperseded,DatePosted,IsExpired,ArticleID,LocalizedDisplayName,CI_ID        
+        if($tempUpd.IsSuperseded -and $tempUpd.DatePosted -ge $(Get-Date).AddDays(-$timeReport)){                
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) was supersede!" -sColor Yellow                
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) will not be removed at this moment since is newer than TimeToReport threshold ($timeReport days old)" -sColor Yellow                
+            Write-Log -iTabs 5 "Go to SCCM console and under update properties assess which update is newer and consider adding it to appropriate SUG."
+            Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+        }        
+        if ($tempUpd.IsExpired -or ($tempUpd.IsSuperseded -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport))){
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) flagged for removal from $($TemplateName+"Rpt-Whitelist")"
+            Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+            $updToRemove += $tempUpd.CI_ID
+        }        
+    }
+    if ($updToRemove.count -eq 0){
+        Write-Log -itabs 4 "All Updates from SUG were found as valid" -sColor Gray
+    }
+    else{            
+        Write-Log -itabs 5 "Removing updates from SUG" 
+        try{                    
+            if($action -like "*Run"){
+                $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Whitelist") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Act Remove                    
+            }
+            Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Whitelist") info." -bConsole $true
+            $sugWhiteListCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Whitelist")
+                                                 
+        }
+        catch{
+            Write-Log -itabs 5 "Error removing updates" -sColor red
+        }            
+    }        
+    Write-Log -itabs 3 "$($TemplateName+"Rpt-Whitelist") Review is Complete"
+
+    Write-Log -itabs 3 "Loading Updates from $($TemplateName+"Rpt-Blacklist")"    
+    foreach ($suglistUpdate in $sugBlacklistCIs){        
+        $tempUpd = Get-CMSoftwareUpdate -Id $suglistUpdate -fast
+        if ($tempUpd.IsExpired -or ($tempUpd.IsSuperseded -and $tempUpd.DatePosted -lt $(Get-Date).AddDays(-$timeReport))){
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) flagged for removal from $($TemplateName+"Rpt-Blacklist")"
+            Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+            $updToRemove += $tempUpd.CI_ID
+        }
+        if($tempUpd.IsSuperseded -and $tempUpd.DatePosted -ge $(Get-Date).AddDays(-$timeReport)){                
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) was supersede!" -sColor Yellow                
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) will not be removed at this moment since is newer than TimeToReport threshold ($timeReport days old)" -sColor Yellow                
+            Write-Log -iTabs 5 "Go to SCCM console and under update properties assess which update is newer and consider adding it to appropriate SUG."
+            Write-Log -iTabs 5 "Update Tile: $($tempUpd.LocalizedDisplayName)"
+        }
+        if (($tempUpd.IsDeployed) -and $deployedUpdatesCIs -contains $tempUpd.CI_ID){
+            Write-Log -iTabs 4 "$($tempUpd.ArticleID) is deployed and is part of Blacklist SUG! Go to SCCM console and review Update deployments. Update Tile: $($tempUpd.LocalizedDisplayName)" -sColor Red -bEventLog $true -iEventID 9022 -sSource $sEventSource 
+        }        
+    }
+    if ($updToRemove.count -eq 0){
+        Write-Log -itabs 4 "All Updates from SUG were found as valid" -sColor Gray
+    }
+    else{            
+        Write-Log -itabs 5 "Removing updates from SUG" 
+        try{                    
+            if($action -like "*Run"){
+                $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Blacklist") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Act Remove                    
+            }                      
+            Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Blacklist") info." -bConsole $true
+            $sugBlacklistCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Blacklist")               
+        }
+        catch{
+            Write-Log -itabs 5 "Error removing updates" -sColor red
+        }            
+    }     
+    Write-Log -itabs 3 "$($TemplateName+"Rpt-Blacklist") Review is Complete"
+    #endregion
+    #region 2.2 - Updating $MSFTUpds with Whitelist and BlackList entries
+    Write-Log -iTabs 3 "Adding $($TemplateName+"Rpt-Whitelist") updates to the list of `"Valid`" Updates." -bConsole $true    
+    $MSFTUpdatesCIs += $sugWhiteListCIs | Where {$MSFTUpdatesCIs -notcontains $_}
+
+    Write-Log -iTabs 3 "Removing $($TemplateName+"Rpt-Blacklist") updates from the list of `"Valid`" Updates." -bConsole $true    
+    $MSFTUpdatesCIs = $MSFTUpdatesCIs | Where {$sugBlacklistCIs -notcontains $_}    
+    #endregion             
+    #region 2.3 - Making sure MSFT SUG has most recent list of Updates
+    Write-Log -iTabs 2 "Refreshing $($TemplateName+"Rpt-MSFT")"
+    
+    Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($TemplateName+"Rpt-MSFT")"
+    $updstoAdd = $MSFTUpdatesCIs | Where-Object {$sugMSFTCIs -Notcontains $_}
+    if ($updstoAdd.count -eq 0){
+        Write-Log -itabs 4 "All valid Updates were found in $($TemplateName+"Rpt-MSFT")" -sColor Gray
+    }
+    else{
+        Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-MSFT")" -sColor Yellow            
+        try{
+            if($action -like "*Run"){
+                $result = Renew-SUG -SUGName $($TemplateName+"Rpt-MSFT") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
+            }
+            Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-MSFT")" -sColor Green
+            try{                         
+                Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
+                $sugMSFTCIs=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
+            }
+            catch{                    
+                Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9015
+                return $global:iExitCode    
+            }
+        }
+        catch{
+            Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-MSFT")" -sColor red
+        }
+    }    
+    Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-MSFT") are also found as `"Valid Updates`"."
+    $updToRemove = $sugMSFTCIs | Where-Object {$MSFTUpdatesCIs -NotContains $_ }
+    if ($updToRemove.count -eq 0){
+        Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-MSFT") were found as valid" -sColor Gray
+    }
+    else{
+        Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-MSFT") are no longer valid." -sColor yellow            
+        try{
+            if($action -like "*Run"){
+                $result = Renew-SUG -SUGName $($TemplateName+"Rpt-MSFT") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Act Remove                    
+            } 
+            Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-MSFT")" -sColor Green
+            try{                         
+                Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-MSFT") info." -bConsole $true
+                $sugMSFTCIs=Check-SUG -SUGName $($TemplateName+"Rpt-MSFT")                  
+            }
+            catch{                    
+                Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                $global:iExitCode = 9016
+                return $global:iExitCode    
+            }
+        }
+        catch{
+            Write-Log -itabs 5 "Error removing updates from $($TemplateName+"Rpt-MSFT")" -sColor red
+        }
+    }    
+    #endregion    
+    #region 2.4 - Making sure Compliance SUG has most recent list of Updates, if deployed, except those in BlackList and including those in WhiteList
+        Write-Log -iTabs 2 "Refreshing $($TemplateName+"Rpt-Compliance")"
+        Write-Log -iTabs 3 "Checking if all updates found as `"Valid Updates`" are found in $($TemplateName+"Rpt-MSFT")."        
+        $updstoAdd = $sugMSFTCIs | Where-Object {$sugComplianceCIs -Notcontains $_ -and $deployedUpdatesCIs -contains $_}
+        if ($updstoAdd.count -eq 0){
+            Write-Log -itabs 4 "All valid Updates were found in $($TemplateName+"Rpt-Compliance")" -sColor Gray
+        }
+        else{
+            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-Compliance")" -sColor Yellow            
             try{
-                if ($action -like "*Run"){
-                    Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName | Out-Null
+                if($action -like "*Run"){
+                    $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Compliance") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
                 }
-                Write-Log -iTabs 4 "Update $($MSFTUpd.CI_ID) added to $($sugMSFT.LocalizedDisplayName)" -sColor Green
+                Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-Compliance")" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Compliance") info." -bConsole $true
+                    $sugComplianceCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Compliance")                    
+                }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9019
+                    return $global:iExitCode    
+                }
             }
             catch{
-                Write-Log -iTabs 4 "Error adding $($MSFTUpd.CI_ID) to $($sugMSFT.LocalizedDisplayName)" -sColor Red
+                Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-Compliance")" -sColor red
             }
+        }    
+        Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-Compliance") are also found as `"Valid Updates`"."
+        $updToRemove = $sugComplianceCIs | Where-Object {$deployedUpdatesCIs -notcontains $_}
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-Compliance") were found as valid" -sColor Gray
         }
-    }
-     
-    foreach($oldUpd in $sugMSFT.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName -Force
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-Compliance") are no longer valid." -sColor Yello            
+            try{
+                 if($action -like "*Run"){
+                    $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Compliance") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Act Remove                    
                 }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
+                Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-Compliance")" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Compliance") info." -bConsole $true
+                    $sugComplianceCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Compliance")                    
                 }
-        }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)MSFT information." -bConsole $true
-    $sugMSFT = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"MSFT"}
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9020
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($TemplateName+"Rpt-Compliance")" -sColor red
+            }
+        }        
     #endregion
-    #region 2.2 - Making sure Report SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing Report SUG." 
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if (($sugReport.Updates -notcontains $MSFTUpd.CI_ID) -and ($sugBlacklist.Updates -notcontains $MSFTUpd.CI_ID) -and ($deployedUpdates -contains $MSFTUpd.CI_ID)){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugReport.LocalizedDisplayName)"
-                try{
-                    if ($action -like "*Run"){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugReport.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$($MSFTUpd.CI_ID) added"
-                }
-                catch{
-                    Write-Log -iTabs 4 "Error adding $MSFTUpd to $($sugReport.LocalizedDisplayName)"
-                }
+    #region 2.5 - Making sure Missing SUG has most recent list of Updates, if not deployed, except those in BlackList and including those in WhiteList
+    Write-Log -iTabs 2 "Refreshing $($TemplateName+"Rpt-Missing")"
+        Write-Log -iTabs 3 "Checking if all updates valid not deployed updates are found in $($TemplateName+"Rpt-Missing"). "        
+        $updstoAdd = $sugMSFTCIs | Where-Object {$sugComplianceCIs -notcontains $_ -and $sugMissingCIs -notcontains $_}
+        if ($updstoAdd.count -eq 0){
+            Write-Log -itabs 4 "All valid not deployed updates were found in $($TemplateName+"Rpt-Missing")" -sColor Gray
         }
-    }
-    foreach($oldUpd in $sugReport.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
+        else{
+            Write-Log -itabs 4 "$($updstoAdd.Count) valid updates missing from $($TemplateName+"Rpt-Missing")" -sColor Yellow            
+            try{
+                if($action -like "*Run"){
+                    $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Missing") -UpdArray $updstoAdd -ArrayLimit $maxArraySizeSUGchange -act Add
                 }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
+                Write-Log -itabs 5 "Updates added to $($TemplateName+"Rpt-Missing")" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Missing") info." -bConsole $true
+                    $sugMissingCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Missing")                    
                 }
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9020
+                    return $global:iExitCode    
+                }
+            }
+            catch{
+                Write-Log -itabs 5 "Error adding updates to $($TemplateName+"Rpt-Missing")" -sColor yellow
+            }
+        }    
+        Write-Log -iTabs 3 "Checking if all updates found in $($TemplateName+"Rpt-Missing") are also found as `"Valid Updates`" and not deployed."
+        $updToRemove = $sugMissingCIs | Where-Object {$sugComplianceCIs -contains $_ -or $sugMSFTCIs -notcontains $_ }
+        if ($updToRemove.count -eq 0){
+            Write-Log -itabs 4 "All Updates from $($TemplateName+"Rpt-Missing") were found as valid" -sColor Gray
         }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)Report information." -bConsole $true
-    $sugReport = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Report"}
-    #endregion
-
-    #region 2.3 - Making sure Missing SUG has most recent list of Updates
-    Write-Log -iTabs 2 "Reviewing Missing SUG." 
-    foreach ($MSFTUpd in $MSFTUpdates){
-        if (($sugReport.Updates -contains $MSFTUpd.CI_ID) -and ($sugBlacklist.Updates -notcontains $MSFTUpd.CI_ID) -and ($sugMissing.Updates -notcontains $MSFTUpd.CI_ID)){
-            Write-Log -iTabs 3 "$($MSFTUpd.CI_ID) not found in $($sugMissing.LocalizedDisplayName)"
-                try{
-                    if ($action -like "*Run"){
-                        Add-CMSoftwareUpdateToGroup -SoftwareUpdateId $MSFTUpd.CI_ID -SoftwareUpdateGroupName $sugReport.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$($MSFTUpd.CI_ID) added"
+        else{
+            Write-Log -itabs 4 "$($updToRemove.Count) updates from $($TemplateName+"Rpt-Missing") are no longer valid." -sColor yellow
+            Write-Log -itabs 5 "Removing updates from $($TemplateName+"Rpt-Missing")" 
+            try{
+                if($action -like "*Run"){
+                    $result = Renew-SUG -SUGName $($TemplateName+"Rpt-Missing") -UpdArray $updToRemove -ArrayLimit $maxArraySizeSUGchange -Act Remove                    
                 }
-                catch{
-                    Write-Log -iTabs 4 "Error adding $MSFTUpd to $($sugReport.LocalizedDisplayName)"
+                Write-Log -itabs 5 "Updates removed from $($TemplateName+"Rpt-Missing")" -sColor Green
+                try{                                             
+                    Write-Log -iTabs 4 "Refreshing $($TemplateName+"Rpt-Missing") info." -bConsole $true
+                    $sugMissingCIs=Check-SUG -SUGName $($TemplateName+"Rpt-Missing")                    
                 }
-        }
-    }
-    foreach($oldUpd in $sugReport.Updates){
-        if ($MSFTUpdates.CI_ID -notcontains $oldUpd){
-            Write-Log -iTabs 3 "$oldUpd not found in recent MSFT Upd List"
-                try{
-                    if ($action -like "*Run"){
-                        Remove-CMSoftwareUpdatefromGroup -SoftwareUpdateId $oldUpd -SoftwareUpdateGroupName $sugMSFT.LocalizedDisplayName
-                    }
-                    Write-Log -iTabs 4 "$oldUpd removed"
+                catch{                    
+                    Write-Log -iTabs 4 "Something went wrong while creating/verifying SUG." -bConsole $true -sColor red                    
+                    Write-Log -iTabs 4 "Aborting script." -bConsole $true -sColor red
+                    $global:iExitCode = 9021
+                    return $global:iExitCode    
                 }
-                catch{
-                    Write-Log -iTabs 4 "Error removing $oldUpd to $($sugMSFT.LocalizedDisplayName)"
-                }
-        }
-    }
-    Write-Log -iTabs 3 "Refreshing $($TemplateName)Missing information." -bConsole $true
-    $sugMissing = $sugs | Where-Object {$_.LocalizedDisplayName -eq $TemplateName+"Missing"}
+            }
+            catch{
+                Write-Log -itabs 5 "Error removing updates from $($TemplateName+"Rpt-Missing")" -sColor red
+            }
+        }        
     #endregion
     Write-Log -iTabs 1 "Completed 2 - Execution." -bConsole $true -sColor cyan
     Write-Log -iTabs 0 -bConsole $true
@@ -1351,26 +1699,32 @@ Function MainSub{
     Write-Log -iTabs 1 "Starting 3 - Post-Checks." -bConsole $true -sColor cyan
     #region 3.1 Comparing results      
     Write-Log -iTabs 2 "3.1 Comparing results:" -bConsole $true -sColor cyan    
-    Write-Log -itabs 3 "SCCM WMI Info: $($MSFTUpdates.Count) updates found to be tracked." -bConsole $true
+    Write-Log -itabs 3 "$($MSFTUpdatesCIs.Count) valid updates found in SCCM WMI." -bConsole $true    
+    Write-Log -itabs 3 "$($deployedUpdatesCIs.Count) Updates found Deployed." -bConsole $true    
     Write-Log -itabs 3
-    Write-Log -itabs 3 "Deployed SUG Information: $($deployedUpdates.Count) Updates found as Deployed." -bConsole $true
     Write-Log -itabs 3 "Reporting  SUG Information: " -bConsole $true
-    Write-Log -iTabs 4 "$($templateName)MSFT -> SUG containing all valid updates, matching defined criteria for tracking"
-    $finalSugMsftUpd = $sugMSFT.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugMsftUpd"
-    Write-Log -iTabs 4 "$($templateName)Blacklist -> SUG containing all forbidden updates"
-    $finalSugBlacklistUpd = $sugBlacklist.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugBlacklistUpd"
-    Write-Log -iTabs 4 "$($templateName)Report -> SUG containing all deployed updates, matching defined criteria for tracking"
-    $finalSugReportUpd = $sugReport.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugReportUpd"
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugReportUpd"
-    Write-Log -iTabs 4 "$($templateName)Missing -> SUG containing all valid updates, not found deployed. target to have zero updates"
-    $finalSugMissingUpd = $sugMissing.Updates.Count
-    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd"    
-    Write-Log -iTabs 5 "Final # of Updates: $finalSugMissingUpd"   
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-MSFT") -> SUG containing all valid updates, matching defined criteria for tracking"
+                        $finalSugMsftUpd = $sugMSFTCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMsftUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugMsftUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Blacklist") -> SUG containing all forbidden updates"
+                        $finalSugBlacklistUpd = $sugBlacklistCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugBlacklistUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugBlacklistUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-WhiteList") -> SUG containing all must-have updates"
+                        $finalSugWhiteListUpd = $sugWhiteListCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugWhiteListUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugWhiteListUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Compliance") -> SUG containing all deployed updates, matching defined criteria for tracking"
+                        $finalSugComplianceUpd = $sugComplianceCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugComplianceUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugComplianceUpd"
+    Write-Log -iTabs 4 "$($TemplateName+"Rpt-Missing") -> SUG containing all valid updates, not found deployed. target to have zero updates"
+                        $finalSugMissingUpd = $sugMissingCIs.Count
+    Write-Log -iTabs 5 "Initial # of Updates: $initSugMissingUpd" -sColor Gray
+    Write-Log -iTabs 5 "Final   # of Updates: $finalSugMissingUpd"    
+    Write-Log -itabs 3
+    
     #endregion
     Write-Log -iTabs 1 "Completed 3 - Post-Checks." -bConsole $true -sColor cyan
     Write-Log -iTabs 0 "" -bConsole $true
@@ -1386,6 +1740,7 @@ Function MainSub{
 #region MAIN_PROCESSING
 
 # Starting log
+$global:original = Get-Location
 Start-Log
 
 Try {
@@ -1400,6 +1755,7 @@ Catch {
 }
 # Stopping the log
 Finish-Log
+Set-Location $global:original
 
 # Quiting with exit code
 Exit $global:iExitCode
